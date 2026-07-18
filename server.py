@@ -178,6 +178,16 @@ def run_bot():
     owns the main thread here, the bot can't (and doesn't need to)
     manage OS signals itself.
     """
+    # --- Python 3.14 compatibility fix ---
+    # Same issue as in bot.py's main(): Python 3.14 no longer auto-creates
+    # an event loop. That's true for EVERY thread, not just the main one —
+    # so a background thread like this one needs its own explicit fix too.
+    import asyncio
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
     app = bot_module.build_application()
     logger.info("Bot polling started in background thread.")
     app.run_polling(stop_signals=None)
