@@ -227,6 +227,37 @@ def rate_entrepreneur(name: str, rater_telegram_id: int, score: int):
         return True, f'Rated {match["name"]} {score}/5.'
 
 
+def get_stats():
+    """Simple counts across the whole bot — powers the admin /stats command."""
+    with get_connection() as conn:
+        entrepreneurs = conn.execute("SELECT COUNT(*) AS c FROM entrepreneurs").fetchone()["c"]
+        services = conn.execute("SELECT COUNT(*) AS c FROM services").fetchone()["c"]
+        ratings = conn.execute("SELECT COUNT(*) AS c FROM ratings").fetchone()["c"]
+        return {"entrepreneurs": entrepreneurs, "services": services, "ratings": ratings}
+
+
+def get_all_telegram_ids():
+    """Every registered entrepreneur's Telegram ID — used for /broadcast."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT telegram_id FROM entrepreneurs").fetchall()
+        return [row["telegram_id"] for row in rows]
+
+
+def force_delete_by_name(name: str):
+    """
+    Admin version of unregister — removes ANY entrepreneur by name,
+    not just the person calling it. Returns (success, telegram_id).
+    """
+    with get_connection() as conn:
+        match = conn.execute(
+            "SELECT telegram_id FROM entrepreneurs WHERE name LIKE ?", (f"%{name.strip()}%",)
+        ).fetchone()
+        if not match:
+            return False, None
+        conn.execute("DELETE FROM entrepreneurs WHERE telegram_id = ?", (match["telegram_id"],))
+        return True, match["telegram_id"]
+
+
 def delete_entrepreneur(telegram_id: int):
     """
     Removes an entrepreneur completely: their profile, their service

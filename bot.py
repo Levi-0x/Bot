@@ -24,8 +24,9 @@ SETUP:
 import os
 import asyncio
 import logging
+from functools import wraps
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -58,6 +59,45 @@ def load_token():
     )
 
 
+# ---- Load admin Telegram IDs ----
+# Admins are identified by their personal Telegram user ID (a number),
+# NOT their username. To find your own ID, message @userinfobot on Telegram.
+# Set as an environment variable ADMIN_IDS="123456789,987654321"
+# or a file admins.txt with one ID per line (or comma-separated).
+def load_admin_ids():
+    ids_str = os.environ.get("ADMIN_IDS", "")
+    if not ids_str and os.path.exists("admins.txt"):
+        with open("admins.txt") as f:
+            ids_str = f.read()
+
+    admin_ids = set()
+    for part in ids_str.replace("\n", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            admin_ids.add(int(part))
+    return admin_ids
+
+
+# The Mini App URL (your Render URL). Set this as an environment variable
+# once you know your deployed URL, e.g. https://your-app.onrender.com
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
+
+
+def admin_only(handler_func):
+    """
+    A decorator that wraps a command handler so it only runs for admins.
+    Put @admin_only directly above any command function you want to restrict.
+    Non-admins get a polite refusal instead of the command running.
+    """
+    @wraps(handler_func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id not in load_admin_ids():
+            await update.message.reply_text("🔒 This command is for bot admins only.")
+            return
+        return await handler_func(update, context)
+    return wrapper
+
+
 # Conversation states for /register (like steps in a form)
 NAME, SERVICES, SOCIALS = range(3)
 
@@ -67,15 +107,33 @@ NAME, SERVICES, SOCIALS = range(3)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Welcome! I connect people with local entrepreneurs & freelancers.\n\n"
-        "• /find <service>  — e.g. /find plumber\n"
-        "• /services — browse all available services\n"
-        "• /register — list yourself as an entrepreneur\n"
-        "• /addservice <service> — add more services later\n"
-        "• /removeservice <service> — remove a service you no longer offer\n"
-        "• /rate <name> <score 1-5> — rate someone\n"
-        "• /myprofile — view your own listing\n"
-        "• /unregister — remove yourself from the list"
+        "Send /help to see everything I can do."
     )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "🧭 *Here's everything I can do:*\n\n"
+        "*Finding someone*\n"
+        "/find <service> — e.g. /find plumber\n"
+        "/services — browse all available services as a tappable menu\n\n"
+        "*Managing your own listing*\n"
+        "/register — list yourself as an entrepreneur\n"
+        "/addservice <service> — add more services later\n"
+        "/removeservice <service> — remove a service you no longer offer\n"
+        "/myprofile — view your own listing\n"
+        "/unregister — remove yourself from the list\n\n"
+        "*Ratings*\n"
+        "/rate <name> <score 1-5> — rate someone you've worked with\n\n"
+        "*Other*\n"
+        "/cancel — cancel whatever you're in the middle of"
+    )
+    if WEBAPP_URL:
+        text += "\n/app — open the app version with a browsable menu"
+    if update.effective_user.id in load_admin_ids():
+        text += "\n\n*You're an admin.* Send /adminhelp to see admin-only commands."
+
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -300,6 +358,85 @@ async def remove_service(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Updated! Your remaining services:\n{remaining}")
 
 
+# ---------- Admin-only commands ----------
+
+@admin_only
+async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🔧 *Admin commands*\n\n"
+        "/stats — see totals (entrepreneurs, services, ratings)\n"
+        "/broadcast <message> — message every registered entrepreneur\n"
+        "/forceremove <name> — remove any entrepreneur's listing by name",
+        parse_mode="Markdown",
+    )
+
+
+@admin_only
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    s = db.get_stats()
+    await update.message.reply_text(
+        f"📊 *Bot stats*\n"
+        f"Entrepreneurs: {s['entrepreneurs']}\n"
+        f"Unique services: {s['services']}\n"
+        f"Ratings given: {s['ratings']}",
+        parse_mode="Markdown",
+    )
+
+
+@admin_only
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /broadcast <message>")
+        return
+
+    message = " ".join(context.args)
+    telegram_ids = db.get_all_telegram_ids()
+
+    sent, failed = 0, 0
+    for telegram_id in telegram_ids:
+        try:
+            await context.bot.send_message(chat_id=telegram_id, text=f"📢 Announcement:\n\n{message}")
+            sent += 1
+        except Exception as e:
+            # Common reasons: the user blocked the bot, or never started a chat with it.
+            logger.warning(f"Broadcast failed for {telegram_id}: {e}")
+            failed += 1
+
+    await update.message.reply_text(f"Broadcast complete. Sent: {sent}, failed: {failed}.")
+
+
+@admin_only
+async def force_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /forceremove <name>\nExample: /forceremove Jane Doe")
+        return
+
+    name = " ".join(context.args)
+    success, telegram_id = db.force_delete_by_name(name)
+    if success:
+        await update.message.reply_text(f'✅ Removed the listing matching "{name}" (user ID {telegram_id}).')
+    else:
+        await update.message.reply_text(f'No entrepreneur found matching "{name}".')
+
+
+# ---------- /app (opens the Mini App) ----------
+
+async def open_app(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not WEBAPP_URL:
+        await update.message.reply_text(
+            "The app isn't set up yet — the bot owner needs to set the WEBAPP_URL environment variable."
+        )
+        return
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Open App", web_app=WebAppInfo(url=WEBAPP_URL))]
+    ])
+    await update.message.reply_text(
+        "Browse entrepreneurs or manage your listing in the app:",
+        reply_markup=keyboard,
+    )
+
+
 # ---------- /myprofile ----------
 
 async def myprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -314,16 +451,13 @@ async def myprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def main():
-    # --- Python 3.14 compatibility fix ---
-    # Python 3.14 stopped auto-creating an event loop in the main thread.
-    # python-telegram-bot's run_polling() still expects one to exist,
-    # so we create it ourselves here before anything else runs.
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
-
+def build_application():
+    """
+    Builds and configures the bot's Application object (registers every
+    command handler) WITHOUT starting it. Kept separate from main() so
+    server.py can reuse this exact setup when running the bot alongside
+    the Mini App's web server.
+    """
     db.init_db()
     token = load_token()
 
@@ -347,6 +481,7 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(register_conv)
     app.add_handler(CommandHandler("find", find))
     app.add_handler(CommandHandler("services", services_menu))
@@ -357,7 +492,28 @@ def main():
     app.add_handler(CommandHandler("removeservice", remove_service))
     app.add_handler(CommandHandler("unregister", unregister_start))
     app.add_handler(CallbackQueryHandler(unregister_callback, pattern="^unregister_"))
+    app.add_handler(CommandHandler("app", open_app))
 
+    # Admin-only
+    app.add_handler(CommandHandler("adminhelp", admin_help))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("broadcast", broadcast))
+    app.add_handler(CommandHandler("forceremove", force_remove))
+
+    return app
+
+
+def main():
+    # --- Python 3.14 compatibility fix ---
+    # Python 3.14 stopped auto-creating an event loop in the main thread.
+    # python-telegram-bot's run_polling() still expects one to exist,
+    # so we create it ourselves here before anything else runs.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+    app = build_application()
     logger.info("Bot starting... press Ctrl+C to stop.")
     app.run_polling()
 

@@ -47,13 +47,71 @@ find your bot by its username, and send `/start`.
 
 | Command | What it does |
 |---|---|
-| `/start` | Welcome message + command list |
+| `/start` | Welcome message |
+| `/help` | Full command list (shows admin commands too, if you're an admin) |
 | `/register` | Guided flow: asks your name → services → socials |
 | `/find <service>` | Lists matching entrepreneurs, sorted by rating |
+| `/services` | Tappable menu of every available service |
+| `/addservice <service>` | Add more services without losing existing ones |
+| `/removeservice <service>` | Remove a service you no longer offer |
 | `/rate <name> <score 1-5>` | Adds a rating for someone |
 | `/myprofile` | Shows your own registered info |
 | `/unregister` | Removes you (and your services/ratings) from the list, with a confirm step |
+| `/app` | Opens the Mini App (browsable UI) — only works once WEBAPP_URL is set |
 | `/cancel` | Exits the registration flow without saving |
+
+### Admin-only commands
+Restricted to Telegram user IDs listed in `ADMIN_IDS` (see setup below).
+
+| Command | What it does |
+|---|---|
+| `/adminhelp` | Lists admin commands |
+| `/stats` | Totals: entrepreneurs, services, ratings |
+| `/broadcast <message>` | Sends a message to every registered entrepreneur |
+| `/forceremove <name>` | Removes any entrepreneur's listing by name |
+
+**To find your own Telegram user ID:** message **@userinfobot** on Telegram — it replies with your numeric ID.
+
+## The Mini App (browsable web UI inside Telegram)
+
+Beyond typing commands, there's now a proper mini web app that opens
+inside Telegram — browse services as tappable chips, search live, and
+manage your own listing (register/edit/unregister) through a form
+instead of a chat conversation.
+
+**How it works under the hood:**
+- `webapp/` — the actual app: `index.html`, `style.css`, `app.js`
+- `server.py` — a small Flask server that serves those files AND a
+  JSON API (`/api/services`, `/api/find`, `/api/register`, etc.)
+  that the app calls
+- Every request that touches personal data is verified using Telegram's
+  signed `initData` — this cryptographically proves the request really
+  came from that Telegram user, so nobody can fake being someone else
+- The app automatically matches each visitor's own Telegram theme
+  (dark/light, accent color) — this is what "personalized" means here
+
+### Running the Mini App locally
+```bash
+python server.py
+```
+This starts the bot AND the web server together on port 5000 (or
+whatever `PORT` is set to). Telegram Mini Apps require an **HTTPS**
+URL though, so to actually test the app screen (not just the API),
+you'll want it deployed — see below.
+
+### Deploying (Render)
+1. Deploy this whole folder to Render as a **Web Service**
+   (not "Background Worker" — the Mini App needs an open port, which
+   `server.py` provides)
+2. **Start Command:** `python server.py`
+3. **Environment variables** to set on Render:
+   - `BOT_TOKEN` — your bot's token
+   - `ADMIN_IDS` — your Telegram user ID (comma-separated if more than one admin)
+   - `WEBAPP_URL` — set this AFTER your first deploy, once you know your
+     Render URL (e.g. `https://your-app.onrender.com`) — then redeploy
+4. In **@BotFather**: `/mybots` → your bot → **Bot Settings** → **Menu Button**
+   → set it to your `WEBAPP_URL`. This adds a persistent "Open" button
+   next to the message box in Telegram, in addition to the `/app` command.
 
 ## Example session
 ```

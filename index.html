@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Find an Entrepreneur</title>
+<!-- Telegram's official Mini App SDK. Gives us tg.themeParams, tg.showAlert,
+     tg.initData (for identifying the user securely), etc. -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="browse">🔍 Browse</button>
+    <button class="tab-btn" data-tab="profile">👤 My Profile</button>
+  </nav>
+
+  <main>
+    <section id="browse" class="tab-content active">
+      <input id="searchInput" type="text" placeholder="Search a service (e.g. plumber)" />
+      <div id="serviceChips" class="chips"></div>
+      <div id="results" class="results"></div>
+    </section>
+
+    <section id="profile" class="tab-content">
+      <div id="profileView"></div>
+
+      <form id="registerForm">
+        <label>
+          Name / Business Name
+          <input type="text" id="regName" required />
+        </label>
+        <label>
+          Services (comma separated)
+          <input type="text" id="regServices" placeholder="e.g. plumbing, leak repair" required />
+        </label>
+        <label>
+          Socials / Contact
+          <input type="text" id="regSocials" placeholder="e.g. IG @yourhandle" required />
+        </label>
+        <button type="submit" class="primary-btn">Save Listing</button>
+      </form>
+
+      <button id="unregisterBtn" class="danger-btn" style="display:none;">Remove My Listing</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
