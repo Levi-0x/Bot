@@ -1,5 +1,5 @@
 /*
-  app.js — VentureVault Mini App
+  app.js — GrowthHub Mini App
   --------------------------------
   Drives the whole single-page app: Home, Explore, Profile, and the
   5-step Register/Edit flow (grouping the 8 requested fields into

@@ -106,7 +106,7 @@ def app_button_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if WEBAPP_URL:
         await update.message.reply_text(
-            "👋 Welcome to VentureVault!\n\n"
+            "Hello, Welcome to GrowthHub!\n\n"
             "Find trusted entrepreneurs and freelancers for any job, or list "
             "your own services and get discovered.\n\n"
             "Tap below to get started:",
@@ -114,7 +114,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            "👋 Welcome! The app isn't set up yet — ask the bot owner to set the WEBAPP_URL environment variable."
+            "Hello, Welcome! The app isn't set up yet — ask the bot owner to set the WEBAPP_URL environment variable."
         )
 
 
