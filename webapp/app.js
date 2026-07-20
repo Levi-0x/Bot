@@ -66,6 +66,7 @@ function showView(name) {
   if (name === "explore") loadExplore();
   if (name === "profile") loadProfile();
   if (name === "home") loadHome();
+  if (name === "admin") loadAdminPanel();
 }
 
 document.querySelectorAll("[data-nav]").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.nav)));
@@ -79,7 +80,7 @@ function renderResultCard(r) {
   const serviceLabel = r.service || (r.services && r.services[0]) || "";
   const contactParts = [r.phone, r.socials].filter(Boolean).join(" · ");
   return `
-    <div class="result-card">
+    <div class="result-card" data-open-id="${r.id}">
       ${avatarHtml(r)}
       <div class="result-info">
         <h3>${escapeHtml(r.name)}</h3>
@@ -88,6 +89,15 @@ function renderResultCard(r) {
         <p class="result-contact">${escapeHtml(contactParts)}</p>
       </div>
     </div>`;
+}
+
+// Attach click-to-open-detail on every rendered results container.
+// Called after any innerHTML update that includes result-cards.
+function wireResultCardClicks(container) {
+  container.querySelectorAll("[data-open-id]").forEach((card) => {
+    card.style.cursor = "pointer";
+    card.addEventListener("click", () => openDetail(Number(card.dataset.openId)));
+  });
 }
 
 function emptyState(message) {
@@ -130,6 +140,7 @@ async function loadHome() {
   document.getElementById("homeTop").innerHTML = top.length
     ? top.map(renderResultCard).join("")
     : emptyState("No entrepreneurs listed yet.");
+  wireResultCardClicks(document.getElementById("homeTop"));
 }
 
 // ============================================================
@@ -167,6 +178,7 @@ async function runSearch(query) {
   container.innerHTML = results.length
     ? results.map(renderResultCard).join("")
     : emptyState(`We couldn't find anyone for "${escapeHtml(query)}". Try another search.`);
+  wireResultCardClicks(container);
 }
 
 document.getElementById("searchInput").addEventListener("input", (e) => {
@@ -242,6 +254,62 @@ async function loadProfile() {
     });
   });
 }
+
+// ============================================================
+// ENTREPRENEUR DETAIL (public page — reached by tapping a search result)
+// ============================================================
+let detailReturnView = "explore";
+
+async function openDetail(entrepreneurId) {
+  const activeView = document.querySelector(".view.active");
+  if (activeView) detailReturnView = activeView.id.replace("view-", "");
+
+  showView("detail");
+  const container = document.getElementById("detailContent");
+  container.innerHTML = `<p class="hint" style="text-align:center;color:var(--text-muted);padding:40px 0;">Loading...</p>`;
+
+  const res = await fetch(`/api/entrepreneur/${entrepreneurId}`);
+  if (!res.ok) {
+    container.innerHTML = emptyState("This listing couldn't be found — it may have been removed.");
+    return;
+  }
+  const profile = await res.json();
+  const ratingText = profile.avg_rating ? `⭐ ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
+
+  container.innerHTML = `
+    <div class="profile-header-card">
+      ${avatarHtml(profile, 68)}
+      <h2>${escapeHtml(profile.name)}</h2>
+      <p class="tagline">${escapeHtml(profile.services.join(", ")) || ""}</p>
+      <p class="rating-line">${ratingText}</p>
+    </div>
+    <div class="detail-list">
+      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}</span></div>
+      <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
+      <div class="detail-row"><span class="label">Socials</span><span class="value">${escapeHtml(profile.socials) || "—"}</span></div>
+      <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
+      <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "—"}</span></div>
+    </div>
+    <button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>`;
+
+  document.getElementById("detailRateBtn").addEventListener("click", () => {
+    tg.showPopup(
+      { title: "Rate this entrepreneur", message: "Choose a score from 1 to 5", buttons: [
+        { id: "1", type: "default", text: "1★" }, { id: "2", type: "default", text: "2★" },
+        { id: "3", type: "default", text: "3★" }, { id: "4", type: "default", text: "4★" },
+        { id: "5", type: "default", text: "5★" }, { id: "cancel", type: "cancel", text: "Cancel" },
+      ]},
+      async (buttonId) => {
+        if (!buttonId || buttonId === "cancel") return;
+        const { ok } = await apiPost("/api/rate", { initData: tg.initData, entrepreneur_id: entrepreneurId, score: Number(buttonId) });
+        tg.showAlert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.");
+        if (ok) openDetail(entrepreneurId);
+      }
+    );
+  });
+}
+
+document.getElementById("detailBack").addEventListener("click", () => showView(detailReturnView));
 
 // ============================================================
 // STEPPER (5 steps: Basic Info, Services, Contact, Photo, Verification)
@@ -428,10 +496,70 @@ function applyTelegramTheme() {
     document.documentElement.style.setProperty("--text-muted", "#9098B1");
     document.documentElement.style.setProperty("--border", "#2A2E3A");
     document.documentElement.style.setProperty("--secondary-soft", "#123531");
+    // Deliberately NOT theming --input-text or form field backgrounds here.
+    // Telegram's in-app browser has been unreliable about matching its
+    // reported color scheme to what's actually rendered, which is exactly
+    // what caused the grey/invisible text bug. Form fields now always
+    // stay white-background/black-text (set in style.css), independent
+    // of theme detection, so they can't break this way again.
   }
 }
 applyTelegramTheme();
 tg.onEvent("themeChanged", applyTelegramTheme);
 
+// ============================================================
+// ADMIN PANEL
+// ============================================================
+// Admins are configured on the bot side (ADMIN_IDS env var / admins.txt),
+// same list used for the bot's /stats, /broadcast, /forceremove commands.
+// This just gives admins a visual alternative to typing those commands.
+
+async function checkAdminAccess() {
+  const res = await apiGet(`/api/admin/check?initData=${encodeURIComponent(tg.initData)}`);
+  if (res.is_admin) {
+    document.getElementById("adminNavBtn").style.display = "flex";
+  }
+}
+
+async function loadAdminPanel() {
+  const statsRes = await fetch(`/api/admin/stats?initData=${encodeURIComponent(tg.initData)}`);
+  if (statsRes.status === 403) {
+    document.getElementById("adminStats").innerHTML = emptyState("You don't have admin access.");
+    return;
+  }
+  const stats = await statsRes.json();
+  document.getElementById("adminStats").innerHTML = `
+    <div class="stat-card"><b>${stats.entrepreneurs}</b><span>Entrepreneurs</span></div>
+    <div class="stat-card"><b>${stats.services}</b><span>Services</span></div>
+    <div class="stat-card"><b>${stats.ratings}</b><span>Ratings</span></div>`;
+}
+
+document.getElementById("adminBack").addEventListener("click", () => showView("profile"));
+
+document.getElementById("adminBroadcastBtn").addEventListener("click", () => {
+  const message = document.getElementById("adminBroadcastText").value.trim();
+  if (!message) return tg.showAlert("Write a message first.");
+
+  tg.showConfirm(`Send this to every registered entrepreneur?\n\n"${message}"`, async (confirmed) => {
+    if (!confirmed) return;
+    const { ok, data } = await apiPost("/api/admin/broadcast", { initData: tg.initData, message });
+    tg.showAlert(ok ? `Sent to ${data.sent} (${data.failed} failed).` : "Broadcast failed. Please try again.");
+    if (ok) document.getElementById("adminBroadcastText").value = "";
+  });
+});
+
+document.getElementById("adminRemoveBtn").addEventListener("click", () => {
+  const name = document.getElementById("adminRemoveName").value.trim();
+  if (!name) return tg.showAlert("Enter a name first.");
+
+  tg.showConfirm(`Remove the listing matching "${name}"? This can't be undone.`, async (confirmed) => {
+    if (!confirmed) return;
+    const { ok, data } = await apiPost("/api/admin/forceremove", { initData: tg.initData, name });
+    tg.showAlert(ok && data.removed ? "Listing removed." : "No matching listing found.");
+    if (ok && data.removed) document.getElementById("adminRemoveName").value = "";
+  });
+});
+
 // ---- Boot ----
 loadHome();
+checkAdminAccess();

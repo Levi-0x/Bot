@@ -303,6 +303,25 @@ def find_by_service(service_query: str):
 
 # ---------- Ratings ----------
 
+def rate_entrepreneur_by_id(entrepreneur_id: int, rater_telegram_id: int, score: int):
+    """
+    Adds a rating (1-5) for an entrepreneur found by their internal id —
+    used by the Mini App's detail page, where the id is already known
+    (unlike the bot's /rate command, which only has a typed name to go on).
+    """
+    with get_connection() as conn:
+        match = conn.execute(
+            "SELECT id FROM entrepreneurs WHERE id = ?", (entrepreneur_id,)
+        ).fetchone()
+        if not match:
+            return False
+        conn.execute(
+            "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score) VALUES (?, ?, ?)",
+            (entrepreneur_id, rater_telegram_id, score)
+        )
+        return True
+
+
 def rate_entrepreneur(name: str, rater_telegram_id: int, score: int):
     """
     Adds a rating (1-5) for an entrepreneur found by name.
@@ -432,6 +451,40 @@ def remove_services(telegram_id: int, service_names: list[str]):
                     (entrepreneur_id, service_row["id"])
                 )
         return True
+
+
+def get_public_profile(entrepreneur_id: int):
+    """
+    Fetch one entrepreneur's PUBLIC detail page — everything they'd want
+    a potential client to see. Deliberately excludes telegram_id and
+    home_address (same privacy boundary as find_by_service/get_top_entrepreneurs,
+    just for a single entrepreneur instead of a list).
+    """
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT id, name, socials, phone, email, business_address, website,
+                   photo_file_id, photo_base64, created_at
+            FROM entrepreneurs WHERE id = ?
+        """, (entrepreneur_id,)).fetchone()
+        if not row:
+            return None
+
+        profile = dict(row)
+        services = conn.execute("""
+            SELECT s.name FROM services s
+            JOIN entrepreneur_services es ON es.service_id = s.id
+            WHERE es.entrepreneur_id = ?
+        """, (entrepreneur_id,)).fetchall()
+        profile["services"] = [s["name"] for s in services]
+
+        rating_row = conn.execute("""
+            SELECT ROUND(AVG(score), 1) AS avg_rating, COUNT(*) AS rating_count
+            FROM ratings WHERE entrepreneur_id = ?
+        """, (entrepreneur_id,)).fetchone()
+        profile["avg_rating"] = rating_row["avg_rating"]
+        profile["rating_count"] = rating_row["rating_count"]
+
+        return profile
 
 
 def get_photo_fields(entrepreneur_id: int):

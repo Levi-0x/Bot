@@ -45,6 +45,42 @@
     <div id="exploreResults" class="results"></div>
   </section>
 
+  <!-- ===================== ENTREPRENEUR DETAIL (public) ===================== -->
+  <section id="view-detail" class="view">
+    <header class="simple-header">
+      <button class="back-btn" id="detailBack">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1>Profile</h1>
+    </header>
+    <div id="detailContent"></div>
+  </section>
+
+  <!-- ===================== ADMIN PANEL ===================== -->
+  <section id="view-admin" class="view">
+    <header class="simple-header">
+      <button class="back-btn" id="adminBack">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1>Admin Panel</h1>
+    </header>
+
+    <div class="section-head"><h2>Overview</h2></div>
+    <div id="adminStats" class="stat-card-row"></div>
+
+    <div class="section-head"><h2>Broadcast a Message</h2></div>
+    <div class="admin-card">
+      <textarea id="adminBroadcastText" rows="3" placeholder="Message to send to every registered entrepreneur"></textarea>
+      <button class="btn-primary" id="adminBroadcastBtn">Send Broadcast</button>
+    </div>
+
+    <div class="section-head"><h2>Remove a Listing</h2></div>
+    <div class="admin-card">
+      <input type="text" id="adminRemoveName" placeholder="Entrepreneur's name" />
+      <button class="btn-secondary danger-text" id="adminRemoveBtn">Remove Listing</button>
+    </div>
+  </section>
+
   <!-- ===================== PROFILE ===================== -->
   <section id="view-profile" class="view">
     <header class="simple-header"><h1>Profile</h1></header>
@@ -164,6 +200,10 @@
     <button class="nav-btn" data-nav="profile">
       <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <span>Profile</span>
+    </button>
+    <button class="nav-btn" data-nav="admin" id="adminNavBtn" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V5l-8-3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <span>Admin</span>
     </button>
   </nav>
 

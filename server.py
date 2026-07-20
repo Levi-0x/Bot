@@ -126,6 +126,14 @@ def api_top():
     return jsonify(db.get_top_entrepreneurs(limit))
 
 
+@flask_app.route("/api/entrepreneur/<int:entrepreneur_id>")
+def api_entrepreneur_detail(entrepreneur_id):
+    profile = db.get_public_profile(entrepreneur_id)
+    if not profile:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(profile)
+
+
 @flask_app.route("/api/find")
 def api_find():
     service_query = request.args.get("service", "")
@@ -227,6 +235,25 @@ def api_photo(entrepreneur_id):
     return "", 404
 
 
+@flask_app.route("/api/rate", methods=["POST"])
+def api_rate():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    user = validate_init_data(body.get("initData", ""), bot_token)
+    if not user:
+        return jsonify({"error": "invalid_init_data"}), 401
+
+    entrepreneur_id = body.get("entrepreneur_id")
+    score = body.get("score")
+    if not isinstance(entrepreneur_id, int) or not isinstance(score, int) or not (1 <= score <= 5):
+        return jsonify({"error": "invalid_input"}), 400
+
+    success = db.rate_entrepreneur_by_id(entrepreneur_id, user["id"], score)
+    if not success:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"status": "ok"})
+
+
 @flask_app.route("/api/unregister", methods=["POST"])
 def api_unregister():
     bot_token = bot_module.load_token()
@@ -237,6 +264,84 @@ def api_unregister():
 
     removed = db.delete_entrepreneur(user["id"])
     return jsonify({"status": "ok", "removed": removed})
+
+
+# ---------- Admin API (reuses bot.py's ADMIN_IDS logic) ----------
+
+def require_admin(init_data: str, bot_token: str):
+    """Returns the verified user dict if they're both a real Telegram user AND an admin, else None."""
+    user = validate_init_data(init_data, bot_token)
+    if not user:
+        return None
+    if user["id"] not in bot_module.load_admin_ids():
+        return None
+    return user
+
+
+@flask_app.route("/api/admin/check")
+def api_admin_check():
+    """Lets the frontend quietly check 'is this visitor an admin?' to decide whether to show the Admin Panel menu item."""
+    bot_token = bot_module.load_token()
+    user = validate_init_data(request.args.get("initData", ""), bot_token)
+    is_admin = bool(user and user["id"] in bot_module.load_admin_ids())
+    return jsonify({"is_admin": is_admin})
+
+
+@flask_app.route("/api/admin/stats")
+def api_admin_stats():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify(db.get_stats())
+
+
+@flask_app.route("/api/admin/broadcast", methods=["POST"])
+def api_admin_broadcast():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    if not require_admin(body.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+
+    message = (body.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "empty_message"}), 400
+
+    telegram_ids = db.get_all_telegram_ids()
+    sent, failed = 0, 0
+    for telegram_id in telegram_ids:
+        try:
+            payload = json.dumps({
+                "chat_id": telegram_id,
+                "text": f"📢 Announcement:\n\n{message}",
+            }).encode()
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            urllib.request.urlopen(req, timeout=10)
+            sent += 1
+        except Exception as e:
+            # Common reasons: the user blocked the bot, or never started a chat with it.
+            logger.warning(f"Broadcast (web) failed for {telegram_id}: {e}")
+            failed += 1
+
+    return jsonify({"status": "ok", "sent": sent, "failed": failed})
+
+
+@flask_app.route("/api/admin/forceremove", methods=["POST"])
+def api_admin_forceremove():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    if not require_admin(body.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "missing_name"}), 400
+
+    success, telegram_id = db.force_delete_by_name(name)
+    return jsonify({"status": "ok", "removed": success})
 
 
 # ---------- Running the bot alongside Flask ----------
