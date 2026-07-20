@@ -33,12 +33,14 @@ import os
 import time
 import hmac
 import json
+import base64
 import hashlib
 import logging
 import threading
+import urllib.request
 from urllib.parse import parse_qsl
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response
 
 import database as db
 import bot as bot_module  # reuses build_application(), load_token() from bot.py
@@ -118,6 +120,12 @@ def api_services():
     return jsonify(db.get_all_services())
 
 
+@flask_app.route("/api/top")
+def api_top():
+    limit = request.args.get("limit", default=5, type=int)
+    return jsonify(db.get_top_entrepreneurs(limit))
+
+
 @flask_app.route("/api/find")
 def api_find():
     service_query = request.args.get("service", "")
@@ -146,14 +154,77 @@ def api_register():
         return jsonify({"error": "invalid_init_data"}), 401
 
     name = (body.get("name") or "").strip()
-    socials = (body.get("socials") or "").strip()
     services = body.get("services") or []
+    phone = (body.get("phone") or "").strip()
+    email = (body.get("email") or "").strip()
+    photo_base64 = body.get("photo_base64") or ""
+    home_address = (body.get("home_address") or "").strip()
 
-    if not name or not services:
-        return jsonify({"error": "missing_fields"}), 400
+    # Compulsory fields — reject clearly if any are missing, rather than
+    # silently saving an incomplete listing.
+    missing = []
+    if not name: missing.append("name")
+    if not services: missing.append("services")
+    if not phone: missing.append("phone")
+    if "@" not in email or "." not in email.split("@")[-1]: missing.append("email")
+    if not photo_base64 and not body.get("keep_existing_photo"): missing.append("photo")
+    if not home_address: missing.append("home_address")
+    if missing:
+        return jsonify({"error": "missing_fields", "fields": missing}), 400
 
-    db.register_entrepreneur(user["id"], name, socials, services)
+    fields = {
+        "name": name,
+        "socials": (body.get("socials") or "").strip(),
+        "phone": phone,
+        "email": email,
+        "business_address": (body.get("business_address") or "").strip(),
+        "website": (body.get("website") or "").strip(),
+        "home_address": home_address,
+    }
+    if photo_base64:
+        fields["photo_base64"] = photo_base64
+
+    db.register_entrepreneur(user["id"], fields, services)
     return jsonify({"status": "ok"})
+
+
+@flask_app.route("/api/photo/<int:entrepreneur_id>")
+def api_photo(entrepreneur_id):
+    """
+    Serves an entrepreneur's photo regardless of how it was uploaded:
+    - via the Mini App -> stored as a base64 string, decoded and served directly
+    - via the bot chat -> stored as a Telegram file_id, so we ask Telegram's
+      API for the real file and stream it through (keeps the bot token
+      server-side only, never exposed to the browser)
+    """
+    photo = db.get_photo_fields(entrepreneur_id)
+    if not photo:
+        return "", 404
+
+    if photo["photo_base64"]:
+        header, _, encoded = photo["photo_base64"].partition(",")
+        content_type = header.split(":")[1].split(";")[0] if ":" in header else "image/jpeg"
+        return Response(base64.b64decode(encoded), mimetype=content_type)
+
+    if photo["photo_file_id"]:
+        try:
+            bot_token = bot_module.load_token()
+            with urllib.request.urlopen(
+                f"https://api.telegram.org/bot{bot_token}/getFile?file_id={photo['photo_file_id']}"
+            ) as resp:
+                file_info = json.load(resp)
+            file_path = file_info["result"]["file_path"]
+            with urllib.request.urlopen(
+                f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+            ) as resp:
+                image_bytes = resp.read()
+                content_type = resp.headers.get("Content-Type", "image/jpeg")
+            return Response(image_bytes, mimetype=content_type)
+        except Exception as e:
+            logger.warning(f"Failed to fetch Telegram photo {photo['photo_file_id']}: {e}")
+            return "", 404
+
+    return "", 404
 
 
 @flask_app.route("/api/unregister", methods=["POST"])

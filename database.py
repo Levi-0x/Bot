@@ -65,8 +65,9 @@ def get_connection():
 
 def init_db():
     """
-    Creates all the tables if they don't exist yet.
-    Safe to call every time the bot starts up.
+    Creates all the tables if they don't exist yet, and migrates older
+    databases to the newer schema (adds new columns without touching
+    existing data). Safe to call every time the bot starts up.
     """
     with get_connection() as conn:
         conn.execute("""
@@ -75,6 +76,13 @@ def init_db():
                 telegram_id INTEGER UNIQUE NOT NULL,
                 name TEXT NOT NULL,
                 socials TEXT,
+                phone TEXT,
+                email TEXT,
+                photo_file_id TEXT,
+                photo_base64 TEXT,
+                business_address TEXT,
+                website TEXT,
+                home_address TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -104,25 +112,68 @@ def init_db():
             )
         """)
 
+        # ---- Migration: add any new columns that older deployed databases
+        # (like one already running on Render) won't have yet. SQLite doesn't
+        # support "ADD COLUMN IF NOT EXISTS", so we check what already exists
+        # first, and only add what's missing. Existing rows keep their data;
+        # new columns just start out empty (NULL) until someone fills them in.
+        existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(entrepreneurs)")}
+        new_columns = {
+            "phone": "TEXT",
+            "email": "TEXT",
+            "photo_file_id": "TEXT",
+            "photo_base64": "TEXT",
+            "business_address": "TEXT",
+            "website": "TEXT",
+            "home_address": "TEXT",
+        }
+        for column, col_type in new_columns.items():
+            if column not in existing_columns:
+                conn.execute(f"ALTER TABLE entrepreneurs ADD COLUMN {column} {col_type}")
+
 
 # ---------- Entrepreneur registration ----------
 
-def register_entrepreneur(telegram_id: int, name: str, socials: str, service_names: list[str]):
+def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[str]):
     """
-    Adds a new entrepreneur, or updates their info if they already registered
-    (identified by their Telegram user id, so people can't impersonate others).
+    Adds a new entrepreneur, or updates their info if they already registered.
+    `fields` is a dict with any of: name, socials, phone, email, photo_file_id,
+    photo_base64, business_address, website, home_address.
     `service_names` is a list like ["plumber", "electrician"].
-    """
-    with get_connection() as conn:
-        conn.execute("""
-            INSERT INTO entrepreneurs (telegram_id, name, socials)
-            VALUES (?, ?, ?)
-            ON CONFLICT(telegram_id) DO UPDATE SET name=excluded.name, socials=excluded.socials
-        """, (telegram_id, name, socials))
 
-        entrepreneur_id = conn.execute(
+    Note on privacy: home_address is stored here like any other field, but by
+    design NO read function below (find_by_service, get_top_entrepreneurs)
+    ever selects it — only get_entrepreneur_profile does, which is only ever
+    called for a person looking at their OWN profile. That boundary is what
+    keeps it private; it's enforced here in the database layer on purpose.
+    """
+    allowed_columns = {
+        "name", "socials", "phone", "email", "photo_file_id", "photo_base64",
+        "business_address", "website", "home_address"
+    }
+    fields = {k: v for k, v in fields.items() if k in allowed_columns}
+
+    with get_connection() as conn:
+        existing = conn.execute(
             "SELECT id FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
-        ).fetchone()["id"]
+        ).fetchone()
+
+        if existing:
+            # Update only the fields provided, leaving anything not passed untouched
+            set_clause = ", ".join(f"{col} = ?" for col in fields)
+            conn.execute(
+                f"UPDATE entrepreneurs SET {set_clause} WHERE telegram_id = ?",
+                (*fields.values(), telegram_id)
+            )
+            entrepreneur_id = existing["id"]
+        else:
+            columns = ", ".join(fields.keys())
+            placeholders = ", ".join("?" for _ in fields)
+            cursor = conn.execute(
+                f"INSERT INTO entrepreneurs (telegram_id, {columns}) VALUES (?, {placeholders})",
+                (telegram_id, *fields.values())
+            )
+            entrepreneur_id = cursor.lastrowid
 
         # Clear old service links so re-registering replaces the list cleanly
         conn.execute("DELETE FROM entrepreneur_services WHERE entrepreneur_id = ?", (entrepreneur_id,))
@@ -144,6 +195,45 @@ def register_entrepreneur(telegram_id: int, name: str, socials: str, service_nam
 
 
 # ---------- Searching ----------
+
+def get_top_entrepreneurs(limit: int = 5):
+    """
+    Returns entrepreneurs sorted by average rating (best first), each with
+    their full list of services combined into one row. Powers the "Top
+    Entrepreneurs" section on the Mini App's Home tab.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                e.id,
+                e.name,
+                e.socials,
+                e.phone,
+                e.email,
+                e.business_address,
+                e.website,
+                e.photo_file_id,
+                e.photo_base64,
+                GROUP_CONCAT(DISTINCT s.name) AS services_csv,
+                ROUND(AVG(r.score), 1) AS avg_rating,
+                COUNT(DISTINCT r.id) AS rating_count
+            FROM entrepreneurs e
+            LEFT JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
+            LEFT JOIN services s ON s.id = es.service_id
+            LEFT JOIN ratings r ON r.entrepreneur_id = e.id
+            GROUP BY e.id
+            ORDER BY avg_rating DESC NULLS LAST, rating_count DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["services"] = d["services_csv"].split(",") if d["services_csv"] else []
+            del d["services_csv"]
+            results.append(d)
+        return results
+
 
 def get_all_services():
     """
@@ -191,6 +281,12 @@ def find_by_service(service_query: str):
                 e.id,
                 e.name,
                 e.socials,
+                e.phone,
+                e.email,
+                e.business_address,
+                e.website,
+                e.photo_file_id,
+                e.photo_base64,
                 s.name AS service,
                 ROUND(AVG(r.score), 1) AS avg_rating,
                 COUNT(r.id) AS rating_count
@@ -338,8 +434,17 @@ def remove_services(telegram_id: int, service_names: list[str]):
         return True
 
 
+def get_photo_fields(entrepreneur_id: int):
+    """Returns the stored photo (whichever form it's in) for one entrepreneur by their internal id."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT photo_file_id, photo_base64 FROM entrepreneurs WHERE id = ?", (entrepreneur_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def get_entrepreneur_profile(telegram_id: int):
-    """Fetch one entrepreneur's own profile, including their full list of services."""
+    """Fetch one entrepreneur's own profile: services, plus their overall rating stats."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
@@ -354,4 +459,12 @@ def get_entrepreneur_profile(telegram_id: int):
             WHERE es.entrepreneur_id = ?
         """, (profile["id"],)).fetchall()
         profile["services"] = [s["name"] for s in services]
+
+        rating_row = conn.execute("""
+            SELECT ROUND(AVG(score), 1) AS avg_rating, COUNT(*) AS rating_count
+            FROM ratings WHERE entrepreneur_id = ?
+        """, (profile["id"],)).fetchone()
+        profile["avg_rating"] = rating_row["avg_rating"]
+        profile["rating_count"] = rating_row["rating_count"]
+
         return profile

@@ -3,48 +3,169 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Find an Entrepreneur</title>
-<!-- Telegram's official Mini App SDK. Gives us tg.themeParams, tg.showAlert,
-     tg.initData (for identifying the user securely), etc. -->
+<title>VentureVault</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-  <nav class="tabs">
-    <button class="tab-btn active" data-tab="browse">🔍 Browse</button>
-    <button class="tab-btn" data-tab="profile">👤 My Profile</button>
+  <!-- ===================== HOME ===================== -->
+  <section id="view-home" class="view active">
+    <header class="home-banner">
+      <div>
+        <p class="banner-eyebrow" id="homeGreeting">Welcome back,</p>
+        <h1 class="banner-name" id="homeUserName">there</h1>
+        <p class="banner-sub">Let's find your next hire today.</p>
+      </div>
+      <div class="banner-avatar" id="homeAvatar">?</div>
+    </header>
+
+    <div class="search-bar" data-goto="explore">
+      <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Search services, skills...</span>
+    </div>
+
+    <div class="section-head"><h2>Popular Categories</h2></div>
+    <div id="homeCategories" class="category-grid"></div>
+
+    <div class="section-head"><h2>Top Entrepreneurs</h2></div>
+    <div id="homeTop" class="results"></div>
+  </section>
+
+  <!-- ===================== EXPLORE ===================== -->
+  <section id="view-explore" class="view">
+    <header class="simple-header"><h1>Explore</h1></header>
+
+    <div class="search-bar input-mode">
+      <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="searchInput" type="text" placeholder="Search services, skills..." />
+    </div>
+
+    <div id="exploreChips" class="chips"></div>
+    <div id="exploreResults" class="results"></div>
+  </section>
+
+  <!-- ===================== PROFILE ===================== -->
+  <section id="view-profile" class="view">
+    <header class="simple-header"><h1>Profile</h1></header>
+    <div id="profileContent"></div>
+  </section>
+
+  <!-- ===================== REGISTER / EDIT STEPPER ===================== -->
+  <section id="view-stepper" class="view">
+    <header class="simple-header">
+      <button class="back-btn" id="stepperBack">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1 id="stepperTitle">List Your Services</h1>
+    </header>
+
+    <p class="step-label" id="stepLabel">Step 1 of 5</p>
+    <div class="progress-dots">
+      <span class="dot active" data-step="1"></span><span class="dot-line"></span>
+      <span class="dot" data-step="2"></span><span class="dot-line"></span>
+      <span class="dot" data-step="3"></span><span class="dot-line"></span>
+      <span class="dot" data-step="4"></span><span class="dot-line"></span>
+      <span class="dot" data-step="5"></span>
+    </div>
+
+    <!-- Step 1: Basic info -->
+    <div class="step-panel active" data-step-panel="1">
+      <h3 class="step-title">Basic Information</h3>
+      <label class="field">Full name / business name <span class="req">*required</span>
+        <input type="text" id="stepName" placeholder="e.g. Jane Doe" />
+      </label>
+      <label class="field">Phone number <span class="req">*required</span>
+        <input type="tel" id="stepPhone" placeholder="e.g. +234 801 234 5678" />
+      </label>
+      <label class="field">Email <span class="req">*required</span>
+        <input type="email" id="stepEmail" placeholder="e.g. jane@example.com" />
+      </label>
+    </div>
+
+    <!-- Step 2: Services -->
+    <div class="step-panel" data-step-panel="2">
+      <h3 class="step-title">Your Services <span class="req">*required</span></h3>
+      <div class="tag-input">
+        <div id="serviceTags" class="tag-list"></div>
+        <input type="text" id="serviceEntry" placeholder="Type a service, press Enter" />
+      </div>
+      <p class="field-hint">Add every service you offer — e.g. plumbing, leak repair.</p>
+    </div>
+
+    <!-- Step 3: Contact & online presence (all optional) -->
+    <div class="step-panel" data-step-panel="3">
+      <h3 class="step-title">Contact & Online Presence</h3>
+      <label class="field">Social media handle <span class="opt">optional</span>
+        <input type="text" id="stepSocials" placeholder="e.g. IG @janedoe_plumbing" />
+      </label>
+      <label class="field">Business address <span class="opt">optional — shown publicly</span>
+        <input type="text" id="stepBusinessAddress" placeholder="e.g. 12 Market St, Lagos" />
+      </label>
+      <label class="field">Website <span class="opt">optional</span>
+        <input type="text" id="stepWebsite" placeholder="e.g. https://janeplumbing.com" />
+      </label>
+    </div>
+
+    <!-- Step 4: Photo -->
+    <div class="step-panel" data-step-panel="4">
+      <h3 class="step-title">Profile Photo <span class="req">*required</span></h3>
+      <div class="photo-upload" id="photoUploadZone">
+        <div id="photoPreviewWrap">
+          <svg viewBox="0 0 24 24" fill="none" id="photoPlaceholderIcon"><path d="M4 16l4.586-4.586a2 2 0 0 1 2.828 0L16 16m-2-2 1.586-1.586a2 2 0 0 1 2.828 0L20 14M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="9" cy="10" r="1.4" stroke="currentColor" stroke-width="1.6"/></svg>
+          <img id="photoPreviewImg" style="display:none;" />
+        </div>
+        <span id="photoUploadLabel">Upload a photo of yourself or your business</span>
+        <input type="file" id="photoInput" accept="image/*" hidden />
+      </div>
+      <p class="field-hint">Shown on your public listing so clients recognize you.</p>
+    </div>
+
+    <!-- Step 5: Home address (private) -->
+    <div class="step-panel" data-step-panel="5">
+      <h3 class="step-title">Verification <span class="req">*required</span></h3>
+      <div class="privacy-notice">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V5l-8-3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span>Kept private. Never shown in search results or on your public profile — used for our internal verification only.</span>
+      </div>
+      <label class="field">Home address <span class="req">*required</span>
+        <textarea id="stepHomeAddress" rows="3" placeholder="e.g. 5 Private Close, Lagos"></textarea>
+      </label>
+    </div>
+
+    <div class="stepper-actions">
+      <button id="stepBackBtn" class="btn-secondary" style="visibility:hidden;">Back</button>
+      <button id="stepNextBtn" class="btn-primary">Next</button>
+    </div>
+  </section>
+
+  <!-- ===================== SUCCESS ===================== -->
+  <section id="view-success" class="view">
+    <div class="success-screen">
+      <div class="success-check">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <h2>You're Listed!</h2>
+      <p>Your profile is now visible to people searching for your services.</p>
+      <button class="btn-primary" data-goto="home">Go to Home</button>
+    </div>
+  </section>
+
+  <!-- ===================== BOTTOM NAV ===================== -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-nav="home">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M3 11l9-8 9 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 10v10h14V10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="nav-btn" data-nav="explore">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Explore</span>
+    </button>
+    <button class="nav-btn" data-nav="profile">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Profile</span>
+    </button>
   </nav>
-
-  <main>
-    <section id="browse" class="tab-content active">
-      <input id="searchInput" type="text" placeholder="Search a service (e.g. plumber)" />
-      <div id="serviceChips" class="chips"></div>
-      <div id="results" class="results"></div>
-    </section>
-
-    <section id="profile" class="tab-content">
-      <div id="profileView"></div>
-
-      <form id="registerForm">
-        <label>
-          Name / Business Name
-          <input type="text" id="regName" required />
-        </label>
-        <label>
-          Services (comma separated)
-          <input type="text" id="regServices" placeholder="e.g. plumbing, leak repair" required />
-        </label>
-        <label>
-          Socials / Contact
-          <input type="text" id="regSocials" placeholder="e.g. IG @yourhandle" required />
-        </label>
-        <button type="submit" class="primary-btn">Save Listing</button>
-      </form>
-
-      <button id="unregisterBtn" class="danger-btn" style="display:none;">Remove My Listing</button>
-    </section>
-  </main>
 
   <script src="app.js"></script>
 </body>

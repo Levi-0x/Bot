@@ -99,7 +99,7 @@ def admin_only(handler_func):
 
 
 # Conversation states for /register (like steps in a form)
-NAME, SERVICES, SOCIALS = range(3)
+NAME, SERVICES, SOCIALS, PHONE, EMAIL, PICTURE, BUSINESS_ADDRESS, WEBSITE, HOME_ADDRESS = range(9)
 
 
 # ---------- Basic commands ----------
@@ -143,10 +143,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------- /register conversation ----------
+# Compulsory: name, service, phone, email, picture, home address
+# Optional (type "skip" to move on): socials, business address, website
 
 async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     await update.message.reply_text(
-        "Let's get you registered! First — what's your full name (or business name)?"
+        "Let's get you registered! (1/8)\n\n"
+        "What's your full name (or business name)?"
     )
     return NAME
 
@@ -154,7 +158,7 @@ async def register_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text.strip()
     await update.message.reply_text(
-        "Got it. Now list the service(s) you offer, separated by commas.\n"
+        "(2/8) List the service(s) you offer, separated by commas.\n"
         "Example: plumbing, pipe installation, leak repair"
     )
     return SERVICES
@@ -163,25 +167,100 @@ async def register_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def register_services(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["services"] = update.message.text.split(",")
     await update.message.reply_text(
-        "Last step — share your social links or contact info (any format).\n"
-        "Example: IG @janedoe_plumbing | +234...  "
+        "(3/8) Share your social media handle(s), if you have any.\n"
+        "Example: IG @janedoe_plumbing\n\n"
+        "Or type 'skip' to move on."
     )
     return SOCIALS
 
 
 async def register_socials(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    socials = update.message.text.strip()
-    telegram_id = update.effective_user.id
-    name = context.user_data["name"]
-    services = context.user_data["services"]
+    text = update.message.text.strip()
+    context.user_data["socials"] = "" if text.lower() == "skip" else text
+    await update.message.reply_text("(4/8) What's your phone number? (required)")
+    return PHONE
 
-    db.register_entrepreneur(telegram_id, name, socials, services)
+
+async def register_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    phone = update.message.text.strip()
+    if not phone or len(phone) < 6:
+        await update.message.reply_text("That doesn't look like a valid phone number. Please try again.")
+        return PHONE
+    context.user_data["phone"] = phone
+    await update.message.reply_text("(5/8) What's your email address? (required)")
+    return EMAIL
+
+
+async def register_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    email = update.message.text.strip()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        await update.message.reply_text("That doesn't look like a valid email. Please try again.")
+        return EMAIL
+    context.user_data["email"] = email
+    await update.message.reply_text(
+        "(6/8) Now send a photo of yourself or your business (required) — "
+        "just attach/send it as a photo, not a file."
+    )
+    return PICTURE
+
+
+async def register_picture(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.photo:
+        await update.message.reply_text("Please send an actual photo (tap the 📎 attach icon → Photo).")
+        return PICTURE
+    # Telegram stores multiple resolutions of the same photo; the last one is the largest.
+    context.user_data["photo_file_id"] = update.message.photo[-1].file_id
+    await update.message.reply_text(
+        "(7/8) What's your business address? This is shown publicly so clients can find you.\n"
+        "Type 'skip' if you don't have a public business location."
+    )
+    return BUSINESS_ADDRESS
+
+
+async def register_business_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    context.user_data["business_address"] = "" if text.lower() == "skip" else text
+    await update.message.reply_text(
+        "(7.5/8) Do you have a website? Type it below, or type 'skip'."
+    )
+    return WEBSITE
+
+
+async def register_website(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    context.user_data["website"] = "" if text.lower() == "skip" else text
+    await update.message.reply_text(
+        "(8/8) Last one — your home address (required for our internal verification only).\n\n"
+        "🔒 This is kept private. It is never shown in search results or on your public "
+        "profile — only you can see it via /myprofile."
+    )
+    return HOME_ADDRESS
+
+
+async def register_home_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    home_address = update.message.text.strip()
+    if not home_address:
+        await update.message.reply_text("This field is required. Please share your home address.")
+        return HOME_ADDRESS
+
+    telegram_id = update.effective_user.id
+    fields = {
+        "name": context.user_data["name"],
+        "socials": context.user_data.get("socials", ""),
+        "phone": context.user_data["phone"],
+        "email": context.user_data["email"],
+        "photo_file_id": context.user_data["photo_file_id"],
+        "business_address": context.user_data.get("business_address", ""),
+        "website": context.user_data.get("website", ""),
+        "home_address": home_address,
+    }
+    db.register_entrepreneur(telegram_id, fields, context.user_data["services"])
 
     await update.message.reply_text(
-        f"✅ You're registered, {name}!\n"
-        f"Services: {', '.join(s.strip() for s in services)}\n"
-        f"Socials: {socials}\n\n"
-        "People can now find you with /find <service>."
+        f"✅ You're registered, {fields['name']}!\n"
+        f"Services: {', '.join(s.strip() for s in context.user_data['services'])}\n\n"
+        "People can now find you with /find <service> or /services.\n"
+        "Your home address is private and won't be shown to anyone."
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -213,18 +292,21 @@ async def services_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     results = db.find_by_service(service_name)
 
     if not results:
-        await query.edit_message_text(f'No entrepreneurs found for "{service_name}".')
+        await query.edit_message_text(f'No entrepreneurs found for "{service_name}".', reply_markup=None)
         return
 
     lines = [f'🔎 Results for "{service_name}":\n']
     for r in results:
         rating_text = f"{r['avg_rating']}★ ({r['rating_count']} ratings)" if r["avg_rating"] else "No ratings yet"
+        contact_parts = [p for p in [r["phone"], r["socials"]] if p]
+        contact_text = " | ".join(contact_parts) if contact_parts else "—"
         lines.append(
             f"👤 {r['name']} — {r['service']}\n"
             f"   Rating: {rating_text}\n"
-            f"   Contact: {r['socials']}\n"
+            f"   Contact: {contact_text}\n"
+            + (f"   Location: {r['business_address']}\n" if r["business_address"] else "")
         )
-    await query.edit_message_text("\n".join(lines))
+    await query.edit_message_text("\n".join(lines), reply_markup=None)
 
 
 # ---------- /find ----------
@@ -246,10 +328,13 @@ async def find(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [f'🔎 Results for "{service_query}":\n']
     for r in results:
         rating_text = f"{r['avg_rating']}★ ({r['rating_count']} ratings)" if r["avg_rating"] else "No ratings yet"
+        contact_parts = [p for p in [r["phone"], r["socials"]] if p]
+        contact_text = " | ".join(contact_parts) if contact_parts else "—"
         lines.append(
             f"👤 {r['name']} — {r['service']}\n"
             f"   Rating: {rating_text}\n"
-            f"   Contact: {r['socials']}\n"
+            f"   Contact: {contact_text}\n"
+            + (f"   Location: {r['business_address']}\n" if r["business_address"] else "")
         )
     await update.message.reply_text("\n".join(lines))
 
@@ -306,9 +391,9 @@ async def unregister_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         removed = db.delete_entrepreneur(update.effective_user.id)
         text = "🗑️ You've been removed from the list. You can /register again anytime." if removed \
             else "You weren't registered, so nothing changed."
-        await query.edit_message_text(text)
+        await query.edit_message_text(text, reply_markup=None)
     else:
-        await query.edit_message_text("Cancelled. Your listing is untouched.")
+        await query.edit_message_text("Cancelled. Your listing is untouched.", reply_markup=None)
 
 
 # ---------- /addservice ----------
@@ -444,11 +529,22 @@ async def myprofile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not profile:
         await update.message.reply_text("You haven't registered yet. Use /register to get listed.")
         return
-    await update.message.reply_text(
-        f"👤 {profile['name']}\n"
-        f"Services: {', '.join(profile['services']) if profile['services'] else '(none yet)'}\n"
-        f"Socials: {profile['socials']}\nRegistered: {profile['created_at']}"
-    )
+
+    lines = [
+        f"👤 {profile['name']}",
+        f"Services: {', '.join(profile['services']) if profile['services'] else '(none yet)'}",
+        f"Phone: {profile['phone'] or '—'}",
+        f"Email: {profile['email'] or '—'}",
+        f"Socials: {profile['socials'] or '—'}",
+        f"Business address: {profile['business_address'] or '—'}",
+        f"Website: {profile['website'] or '—'}",
+        f"Photo: {'✅ on file' if profile['photo_file_id'] or profile['photo_base64'] else '—'}",
+        f"Registered: {profile['created_at']}",
+        "",
+        "🔒 Home address (private, never shown to others):",
+        profile["home_address"] or "—",
+    ]
+    await update.message.reply_text("\n".join(lines))
 
 
 def build_application():
@@ -476,6 +572,12 @@ def build_application():
             NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_name)],
             SERVICES: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_services)],
             SOCIALS: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_socials)],
+            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_phone)],
+            EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_email)],
+            PICTURE: [MessageHandler(filters.PHOTO, register_picture)],
+            BUSINESS_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_business_address)],
+            WEBSITE: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_website)],
+            HOME_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, register_home_address)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
