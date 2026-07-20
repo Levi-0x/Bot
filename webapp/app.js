@@ -292,21 +292,40 @@ async function openDetail(entrepreneurId) {
     </div>
     <button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>`;
 
-  document.getElementById("detailRateBtn").addEventListener("click", () => {
-    tg.showPopup(
-      { title: "Rate this entrepreneur", message: "Choose a score from 1 to 5", buttons: [
-        { id: "1", type: "default", text: "1★" }, { id: "2", type: "default", text: "2★" },
-        { id: "3", type: "default", text: "3★" }, { id: "4", type: "default", text: "4★" },
-        { id: "5", type: "default", text: "5★" }, { id: "cancel", type: "cancel", text: "Cancel" },
-      ]},
-      async (buttonId) => {
-        if (!buttonId || buttonId === "cancel") return;
-        const { ok } = await apiPost("/api/rate", { initData: tg.initData, entrepreneur_id: entrepreneurId, score: Number(buttonId) });
-        tg.showAlert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.");
-        if (ok) openDetail(entrepreneurId);
-      }
-    );
+  document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
+}
+
+// ---- Custom rating modal ----
+// Not using tg.showPopup here: Telegram caps popups at 3 buttons, and we
+// need 5 (one per star) plus Cancel — that's exactly why the old version
+// silently did nothing. A plain in-page modal has no such limit.
+function openRatingModal(entrepreneurId, name) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>Rate ${escapeHtml(name)}</h3>
+      <p class="field-hint">Tap a star to submit your rating.</p>
+      <div class="star-row">
+        ${[1, 2, 3, 4, 5].map((n) => `<button class="star-btn" data-score="${n}">★</button>`).join("")}
+      </div>
+      <button class="btn-secondary" id="ratingCancelBtn">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.querySelectorAll(".star-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const score = Number(btn.dataset.score);
+      overlay.remove();
+      const { ok } = await apiPost("/api/rate", { initData: tg.initData, entrepreneur_id: entrepreneurId, score });
+      tg.showAlert ? tg.showAlert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.")
+                   : alert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.");
+      if (ok) openDetail(entrepreneurId);
+    });
   });
+
+  document.getElementById("ratingCancelBtn").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
 }
 
 document.getElementById("detailBack").addEventListener("click", () => showView(detailReturnView));

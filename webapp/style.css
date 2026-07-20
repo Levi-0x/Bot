@@ -20,7 +20,7 @@
   --shadow: 0 6px 20px rgba(20, 33, 61, 0.08);
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-appearance: none; appearance: none; }
 
 body {
   margin: 0;
@@ -48,9 +48,9 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   color: white;
   margin-bottom: 18px;
 }
-.banner-eyebrow { margin: 0; font-size: 13px; opacity: 0.85; }
-.banner-name { font-size: 21px; font-weight: 700; margin: 2px 0 6px; }
-.banner-sub { margin: 0; font-size: 13px; opacity: 0.85; }
+.banner-eyebrow { margin: 0 0 6px; font-size: 19px; font-weight: 700; }
+.banner-sub { margin: 0; font-size: 13px; opacity: 0.85; line-height: 1.4; }
+.banner-question { margin: 8px 0 0; font-size: 13.5px; font-weight: 700; opacity: 0.95; }
 .banner-avatar {
   width: 46px; height: 46px; border-radius: 50%;
   background: rgba(255, 255, 255, 0.18);
@@ -78,8 +78,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .search-bar.input-mode { cursor: default; }
 .search-bar input {
   border: none; outline: none; font-size: 14px; width: 100%; background: transparent;
-  color: var(--input-text) !important;
-  -webkit-text-fill-color: var(--input-text);
+  color: var(--text);
 }
 
 /* ---------- Section headings ---------- */
@@ -247,6 +246,23 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .success-check svg { width: 32px; height: 32px; }
 .success-screen h2 { font-size: 19px; margin-bottom: 8px; }
 .success-screen p { color: var(--text-muted); font-size: 13.5px; margin: 0 0 24px; }
+
+/* ---------- Rating modal ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(20, 33, 61, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+}
+.modal-card {
+  background: var(--surface); border-radius: var(--radius-lg); padding: 24px 20px;
+  width: 100%; max-width: 320px; text-align: center; box-shadow: var(--shadow);
+}
+.modal-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.star-row { display: flex; justify-content: center; gap: 8px; margin: 18px 0; }
+.star-btn {
+  border: none; background: var(--secondary-soft); color: var(--secondary);
+  width: 44px; height: 44px; border-radius: 50%; font-size: 20px; cursor: pointer;
+}
+.star-btn:active { background: var(--secondary); color: white; }
 
 /* ---------- Admin panel ---------- */
 .stat-card-row { display: flex; gap: 10px; margin-bottom: 22px; }
