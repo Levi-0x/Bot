@@ -30,7 +30,7 @@ import logging
 from functools import wraps
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 import database as db
 
@@ -164,7 +164,9 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/forceremove <name> — remove any entrepreneur's listing by name\n"
         "/addadmin <telegram_id> — make someone an admin instantly (no redeploy)\n"
         "/removeadmin <telegram_id> — remove a bot-added admin\n"
-        "/listadmins — see everyone with admin access",
+        "/listadmins — see everyone with admin access\n"
+        "/verify <name> — mark a listing as manually verified (shows a badge)\n"
+        "/unverify <name> — remove that badge",
         parse_mode="Markdown",
     )
 
@@ -261,6 +263,56 @@ async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+async def handle_shared_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Fires when someone taps 'Verify with Telegram' in the Mini App, which
+    triggers Telegram's native requestContact() prompt. If they approve,
+    Telegram delivers their REAL phone number here as a message — this is
+    what makes it trustworthy: Telegram itself vouches for the number,
+    not just whatever the person typed into a form.
+    """
+    contact = update.message.contact
+    # Only accept a contact if it's the person's OWN number, not one they
+    # forwarded/shared on behalf of someone else in their contacts list.
+    if contact.user_id != update.effective_user.id:
+        await update.message.reply_text("Please share your own contact, not someone else's.")
+        return
+
+    updated = db.set_verified_phone(update.effective_user.id, contact.phone_number)
+    if updated:
+        await update.message.reply_text(
+            "✅ Phone verified! Reopen the app (/app) to see the checkmark on your listing."
+        )
+    else:
+        await update.message.reply_text(
+            "You'll need to register first (via the app) before verifying your phone."
+        )
+
+
+@admin_only
+async def verify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /verify <name>\nExample: /verify Jane Doe")
+        return
+    name = " ".join(context.args)
+    success, telegram_id = db.set_identity_verified_by_name(name, True)
+    await update.message.reply_text(
+        f'✅ Marked "{name}" as verified.' if success else f'No entrepreneur found matching "{name}".'
+    )
+
+
+@admin_only
+async def unverify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /unverify <name>")
+        return
+    name = " ".join(context.args)
+    success, telegram_id = db.set_identity_verified_by_name(name, False)
+    await update.message.reply_text(
+        f'Removed verification from "{name}".' if success else f'No entrepreneur found matching "{name}".'
+    )
+
+
 def build_application():
     """
     Builds and configures the bot's Application object (registers every
@@ -292,6 +344,9 @@ def build_application():
     app.add_handler(CommandHandler("addadmin", add_admin_cmd))
     app.add_handler(CommandHandler("removeadmin", remove_admin_cmd))
     app.add_handler(CommandHandler("listadmins", list_admins_cmd))
+    app.add_handler(CommandHandler("verify", verify_cmd))
+    app.add_handler(CommandHandler("unverify", unverify_cmd))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_shared_contact))
 
     return app
 

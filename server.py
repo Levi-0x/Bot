@@ -113,21 +113,36 @@ def index():
     return send_from_directory(WEBAPP_DIR, "index.html")
 
 
-# ---------- Public read API (no auth needed — this is just the public directory) ----------
+# ---------- Directory API ----------
+# These still require valid Telegram initData, even though the data itself
+# is "public" within the app. Without this, anyone on the internet — not
+# just people using the Mini App — could script a bot to scrape every
+# phone number, email, and photo by iterating IDs or service names. This
+# way, a request must genuinely come from someone opening the app inside
+# Telegram, which rules out anonymous bulk scraping from outside it.
 
 @flask_app.route("/api/services")
 def api_services():
+    bot_token = bot_module.load_token()
+    if not validate_init_data(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "invalid_init_data"}), 401
     return jsonify(db.get_all_services())
 
 
 @flask_app.route("/api/top")
 def api_top():
+    bot_token = bot_module.load_token()
+    if not validate_init_data(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "invalid_init_data"}), 401
     limit = request.args.get("limit", default=5, type=int)
     return jsonify(db.get_top_entrepreneurs(limit))
 
 
 @flask_app.route("/api/entrepreneur/<int:entrepreneur_id>")
 def api_entrepreneur_detail(entrepreneur_id):
+    bot_token = bot_module.load_token()
+    if not validate_init_data(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "invalid_init_data"}), 401
     profile = db.get_public_profile(entrepreneur_id)
     if not profile:
         return jsonify({"error": "not_found"}), 404
@@ -136,6 +151,9 @@ def api_entrepreneur_detail(entrepreneur_id):
 
 @flask_app.route("/api/find")
 def api_find():
+    bot_token = bot_module.load_token()
+    if not validate_init_data(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "invalid_init_data"}), 401
     service_query = request.args.get("service", "")
     return jsonify(db.find_by_service(service_query))
 
@@ -204,7 +222,12 @@ def api_photo(entrepreneur_id):
     - via the bot chat -> stored as a Telegram file_id, so we ask Telegram's
       API for the real file and stream it through (keeps the bot token
       server-side only, never exposed to the browser)
+    Requires valid initData too, same reasoning as the other directory endpoints.
     """
+    bot_token = bot_module.load_token()
+    if not validate_init_data(request.args.get("initData", ""), bot_token):
+        return "", 401
+
     photo = db.get_photo_fields(entrepreneur_id)
     if not photo:
         return "", 404
@@ -216,7 +239,6 @@ def api_photo(entrepreneur_id):
 
     if photo["photo_file_id"]:
         try:
-            bot_token = bot_module.load_token()
             with urllib.request.urlopen(
                 f"https://api.telegram.org/bot{bot_token}/getFile?file_id={photo['photo_file_id']}"
             ) as resp:
@@ -327,6 +349,22 @@ def api_admin_broadcast():
             failed += 1
 
     return jsonify({"status": "ok", "sent": sent, "failed": failed})
+
+
+@flask_app.route("/api/admin/verify", methods=["POST"])
+def api_admin_verify():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    if not require_admin(body.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+
+    name = (body.get("name") or "").strip()
+    verified = bool(body.get("verified", True))
+    if not name:
+        return jsonify({"error": "missing_name"}), 400
+
+    success, telegram_id = db.set_identity_verified_by_name(name, verified)
+    return jsonify({"status": "ok", "found": success})
 
 
 @flask_app.route("/api/admin/forceremove", methods=["POST"])

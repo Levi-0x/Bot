@@ -1,5 +1,5 @@
 /*
-  app.js — GrowthHub Mini App
+  app.js — VentureVault Mini App
   --------------------------------
   Drives the whole single-page app: Home, Explore, Profile, and the
   5-step Register/Edit flow (grouping the 8 requested fields into
@@ -33,14 +33,24 @@ function escapeHtml(str) {
 function avatarHtml(entrepreneur, size) {
   const style = size ? `width:${size}px;height:${size}px;font-size:${size * 0.34}px;` : "";
   if (entrepreneur.id && (entrepreneur.photo_base64 || entrepreneur.photo_file_id)) {
-    return `<div class="avatar-circle" style="${style}"><img src="/api/photo/${entrepreneur.id}" alt="" onerror="this.remove()"></div>`;
+    return `<div class="avatar-circle" style="${style}"><img src="${photoUrl(entrepreneur.id)}" alt="" onerror="this.remove()"></div>`;
   }
   return `<div class="avatar-circle" style="background:${colorForName(entrepreneur.name)};${style}">${initials(entrepreneur.name)}</div>`;
 }
 
+// Every directory endpoint now requires proof this request genuinely came
+// from inside the Mini App (valid initData) — otherwise anyone with a
+// script could scrape every phone number, email, and photo in bulk from
+// outside Telegram entirely. This helper keeps that from getting missed
+// on any individual call.
+function photoUrl(entrepreneurId) {
+  return `/api/photo/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`;
+}
+
 // ---- API helpers ----
 async function apiGet(path) {
-  const res = await fetch(path);
+  const separator = path.includes("?") ? "&" : "?";
+  const res = await fetch(`${path}${separator}initData=${encodeURIComponent(tg.initData)}`);
   return res.json();
 }
 async function apiPost(path, body) {
@@ -79,11 +89,12 @@ function renderResultCard(r) {
   const ratingText = r.avg_rating ? `⭐ ${r.avg_rating} (${r.rating_count} ratings)` : "No ratings yet";
   const serviceLabel = r.service || (r.services && r.services[0]) || "";
   const contactParts = [r.phone, r.socials].filter(Boolean).join(" · ");
+  const verifiedBadge = r.identity_verified ? ' <span class="verified-badge" title="Manually verified by an admin">✅</span>' : "";
   return `
     <div class="result-card" data-open-id="${r.id}">
       ${avatarHtml(r)}
       <div class="result-info">
-        <h3>${escapeHtml(r.name)}</h3>
+        <h3>${escapeHtml(r.name)}${verifiedBadge}</h3>
         <p class="result-service">${escapeHtml(serviceLabel)}</p>
         <p class="result-rating">${ratingText}</p>
         <p class="result-contact">${escapeHtml(contactParts)}</p>
@@ -233,7 +244,7 @@ async function loadProfile() {
       </div>
     </div>
     <div class="detail-list">
-      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}</span></div>
+      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}${profile.phone_verified ? ' <span class="verified-badge" title="Confirmed via Telegram">✅</span>' : ""}</span></div>
       <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
       <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
       <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "—"}</span></div>
@@ -262,29 +273,36 @@ let detailReturnView = "explore";
 
 async function openDetail(entrepreneurId) {
   const activeView = document.querySelector(".view.active");
-  if (activeView) detailReturnView = activeView.id.replace("view-", "");
+  // Only remember where we came FROM if we're not already on the detail
+  // page — otherwise refreshing after a rating overwrites the return
+  // target with "detail" itself, which is exactly why Back stopped working.
+  if (activeView && activeView.id !== "view-detail") {
+    detailReturnView = activeView.id.replace("view-", "");
+  }
 
   showView("detail");
   const container = document.getElementById("detailContent");
   container.innerHTML = `<p class="hint" style="text-align:center;color:var(--text-muted);padding:40px 0;">Loading...</p>`;
 
-  const res = await fetch(`/api/entrepreneur/${entrepreneurId}`);
+  const res = await fetch(`/api/entrepreneur/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`);
   if (!res.ok) {
     container.innerHTML = emptyState("This listing couldn't be found — it may have been removed.");
     return;
   }
   const profile = await res.json();
   const ratingText = profile.avg_rating ? `⭐ ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
+  const verifiedBadge = profile.identity_verified ? ' <span class="verified-badge" title="Manually verified by an admin">✅ Verified</span>' : "";
+  const phoneVerifiedBadge = profile.phone_verified ? ' <span class="verified-badge" title="Confirmed via Telegram">✅</span>' : "";
 
   container.innerHTML = `
     <div class="profile-header-card">
       ${avatarHtml(profile, 68)}
-      <h2>${escapeHtml(profile.name)}</h2>
+      <h2>${escapeHtml(profile.name)}${verifiedBadge}</h2>
       <p class="tagline">${escapeHtml(profile.services.join(", ")) || ""}</p>
       <p class="rating-line">${ratingText}</p>
     </div>
     <div class="detail-list">
-      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}</span></div>
+      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}${phoneVerifiedBadge}</span></div>
       <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
       <div class="detail-row"><span class="label">Socials</span><span class="value">${escapeHtml(profile.socials) || "—"}</span></div>
       <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
@@ -354,7 +372,7 @@ function openStepper(existingProfile) {
   const previewImg = document.getElementById("photoPreviewImg");
   const placeholderIcon = document.getElementById("photoPlaceholderIcon");
   if (existingProfile?.id && (existingProfile.photo_base64 || existingProfile.photo_file_id)) {
-    previewImg.src = `/api/photo/${existingProfile.id}`;
+    previewImg.src = photoUrl(existingProfile.id);
     previewImg.style.display = "block";
     placeholderIcon.style.display = "none";
     document.getElementById("photoUploadLabel").textContent = "Tap to change photo";
@@ -380,6 +398,26 @@ function renderTags() {
     });
   });
 }
+
+// ---- Phone verification via Telegram's native requestContact ----
+// Note: Telegram delivers the actual verified phone number to the BOT
+// (as a chat message), not directly back to this webpage — that's by
+// design on Telegram's part, for privacy. So we can't instantly show the
+// checkmark here; we tell the person to check the chat, where the bot
+// confirms it immediately and they can reopen the app to see the badge.
+document.getElementById("verifyPhoneBtn").addEventListener("click", () => {
+  const hint = document.getElementById("verifyPhoneHint");
+  if (typeof tg.requestContact !== "function") {
+    const msg = "Your Telegram app version doesn't support this yet — you can still enter your phone manually.";
+    tg.showAlert ? tg.showAlert(msg) : alert(msg);
+    return;
+  }
+  tg.requestContact((shared) => {
+    if (shared) {
+      hint.textContent = "Requested! Check your chat with the bot — it'll confirm there, then reopen the app to see your ✅ badge.";
+    }
+  });
+});
 
 document.getElementById("serviceEntry").addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === ",") {
@@ -565,6 +603,20 @@ document.getElementById("adminBroadcastBtn").addEventListener("click", () => {
     tg.showAlert(ok ? `Sent to ${data.sent} (${data.failed} failed).` : "Broadcast failed. Please try again.");
     if (ok) document.getElementById("adminBroadcastText").value = "";
   });
+});
+
+document.getElementById("adminVerifyBtn").addEventListener("click", async () => {
+  const name = document.getElementById("adminVerifyName").value.trim();
+  if (!name) return tg.showAlert("Enter a name first.");
+  const { ok, data } = await apiPost("/api/admin/verify", { initData: tg.initData, name, verified: true });
+  tg.showAlert(ok && data.found ? "✅ Marked as verified." : "No matching listing found.");
+});
+
+document.getElementById("adminUnverifyBtn").addEventListener("click", async () => {
+  const name = document.getElementById("adminVerifyName").value.trim();
+  if (!name) return tg.showAlert("Enter a name first.");
+  const { ok, data } = await apiPost("/api/admin/verify", { initData: tg.initData, name, verified: false });
+  tg.showAlert(ok && data.found ? "Verification removed." : "No matching listing found.");
 });
 
 document.getElementById("adminRemoveBtn").addEventListener("click", () => {

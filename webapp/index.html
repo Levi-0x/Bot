@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>GrowthHub</title>
+<title>VentureVault</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="style.css" />
 </head>
@@ -74,6 +74,14 @@
       <button class="btn-primary" id="adminBroadcastBtn">Send Broadcast</button>
     </div>
 
+    <div class="section-head"><h2>Verify a Listing</h2></div>
+    <div class="admin-card">
+      <input type="text" id="adminVerifyName" placeholder="Entrepreneur's name" />
+      <p class="field-hint">Do your own diligence first (call them, check the address) — this just adds a trust badge to their listing.</p>
+      <button class="btn-primary" id="adminVerifyBtn">Mark Verified</button>
+      <button class="btn-secondary" id="adminUnverifyBtn">Remove Verification</button>
+    </div>
+
     <div class="section-head"><h2>Remove a Listing</h2></div>
     <div class="admin-card">
       <input type="text" id="adminRemoveName" placeholder="Entrepreneur's name" />
@@ -114,6 +122,12 @@
       <label class="field">Phone number <span class="req">*required</span>
         <input type="tel" id="stepPhone" placeholder="e.g. +234 801 234 5678" />
       </label>
+      <button type="button" class="btn-secondary" id="verifyPhoneBtn" style="margin-bottom:14px;">
+        ✅ Verify with Telegram
+      </button>
+      <p class="field-hint" id="verifyPhoneHint" style="margin-bottom:14px;">
+        Confirms your number really belongs to your Telegram account — shows a badge on your listing.
+      </p>
       <label class="field">Email <span class="req">*required</span>
         <input type="email" id="stepEmail" placeholder="e.g. jane@example.com" />
       </label>

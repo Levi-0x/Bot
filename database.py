@@ -134,6 +134,9 @@ def init_db():
             "business_address": "TEXT",
             "website": "TEXT",
             "home_address": "TEXT",
+            "phone_verified": "INTEGER DEFAULT 0",
+            "identity_verified": "INTEGER DEFAULT 0",
+            "verified_at": "TEXT",
         }
         for column, col_type in new_columns.items():
             if column not in existing_columns:
@@ -222,6 +225,8 @@ def get_top_entrepreneurs(limit: int = 5):
                 e.website,
                 e.photo_file_id,
                 e.photo_base64,
+                e.phone_verified,
+                e.identity_verified,
                 GROUP_CONCAT(DISTINCT s.name) AS services_csv,
                 ROUND(AVG(r.score), 1) AS avg_rating,
                 COUNT(DISTINCT r.id) AS rating_count
@@ -295,6 +300,8 @@ def find_by_service(service_query: str):
                 e.website,
                 e.photo_file_id,
                 e.photo_base64,
+                e.phone_verified,
+                e.identity_verified,
                 s.name AS service,
                 ROUND(AVG(r.score), 1) AS avg_rating,
                 COUNT(r.id) AS rating_count
@@ -314,8 +321,10 @@ def find_by_service(service_query: str):
 def rate_entrepreneur_by_id(entrepreneur_id: int, rater_telegram_id: int, score: int):
     """
     Adds a rating (1-5) for an entrepreneur found by their internal id —
-    used by the Mini App's detail page, where the id is already known
-    (unlike the bot's /rate command, which only has a typed name to go on).
+    used by the Mini App's detail page. If this rater already rated this
+    entrepreneur before, their existing rating is UPDATED in place rather
+    than adding a new row — otherwise one person could submit unlimited
+    ratings and skew the average arbitrarily.
     """
     with get_connection() as conn:
         match = conn.execute(
@@ -323,10 +332,22 @@ def rate_entrepreneur_by_id(entrepreneur_id: int, rater_telegram_id: int, score:
         ).fetchone()
         if not match:
             return False
-        conn.execute(
-            "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score) VALUES (?, ?, ?)",
-            (entrepreneur_id, rater_telegram_id, score)
-        )
+
+        existing = conn.execute(
+            "SELECT id FROM ratings WHERE entrepreneur_id = ? AND rater_telegram_id = ?",
+            (entrepreneur_id, rater_telegram_id)
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                "UPDATE ratings SET score = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (score, existing["id"])
+            )
+        else:
+            conn.execute(
+                "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score) VALUES (?, ?, ?)",
+                (entrepreneur_id, rater_telegram_id, score)
+            )
         return True
 
 
@@ -371,6 +392,41 @@ def remove_admin(telegram_id: int):
     with get_connection() as conn:
         cursor = conn.execute("DELETE FROM admins WHERE telegram_id = ?", (telegram_id,))
         return cursor.rowcount > 0
+
+
+def set_verified_phone(telegram_id: int, phone: str):
+    """
+    Called when someone shares their REAL phone number via Telegram's native
+    requestContact() flow — Telegram itself confirms this number belongs to
+    that account, so we trust it and mark phone_verified=1. Returns False if
+    they haven't registered yet (nothing to attach it to).
+    """
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE entrepreneurs SET phone = ?, phone_verified = 1 WHERE telegram_id = ?",
+            (phone, telegram_id)
+        )
+        return cursor.rowcount > 0
+
+
+def set_identity_verified_by_name(name: str, verified: bool):
+    """
+    Admin-only manual verification badge — there's no automated way to
+    confirm someone actually lives/works at a claimed address without a
+    paid ID-verification service, so this is a deliberate manual step:
+    an admin does their own diligence, then flips this flag.
+    """
+    with get_connection() as conn:
+        match = conn.execute(
+            "SELECT telegram_id FROM entrepreneurs WHERE name LIKE ?", (f"%{name.strip()}%",)
+        ).fetchone()
+        if not match:
+            return False, None
+        conn.execute(
+            "UPDATE entrepreneurs SET identity_verified = ?, verified_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE verified_at END WHERE telegram_id = ?",
+            (1 if verified else 0, verified, match["telegram_id"])
+        )
+        return True, match["telegram_id"]
 
 
 def get_stats():
@@ -494,7 +550,7 @@ def get_public_profile(entrepreneur_id: int):
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id, name, socials, phone, email, business_address, website,
-                   photo_file_id, photo_base64, created_at
+                   photo_file_id, photo_base64, created_at, phone_verified, identity_verified
             FROM entrepreneurs WHERE id = ?
         """, (entrepreneur_id,)).fetchone()
         if not row:
