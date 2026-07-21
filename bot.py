@@ -66,12 +66,22 @@ def load_admin_ids():
         with open("admins.txt") as f:
             ids_str = f.read()
 
-    admin_ids = set()
+    root_admin_ids = set()
     for part in ids_str.replace("\n", ",").split(","):
         part = part.strip()
         if part.isdigit():
-            admin_ids.add(int(part))
-    return admin_ids
+            root_admin_ids.add(int(part))
+
+    # Root admins (from Render's ADMIN_IDS) + admins added on the fly via
+    # /addadmin, which are stored in the database instead — that's what
+    # lets any existing admin add another one instantly, no redeploy needed.
+    return root_admin_ids | db.get_admin_ids_from_db()
+
+
+def is_root_admin(telegram_id: int):
+    """Root admins can only be changed via Render's ADMIN_IDS — /removeadmin can't touch them."""
+    ids_str = os.environ.get("ADMIN_IDS", "")
+    return str(telegram_id) in [p.strip() for p in ids_str.replace("\n", ",").split(",")]
 
 
 # The Mini App URL (your Render URL). Set this as an environment variable
@@ -106,7 +116,7 @@ def app_button_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if WEBAPP_URL:
         await update.message.reply_text(
-            "Hello, Welcome to GrowthHub!\n\n"
+            "👋 Welcome to VentureVault!\n\n"
             "Find trusted entrepreneurs and freelancers for any job, or list "
             "your own services and get discovered.\n\n"
             "Tap below to get started:",
@@ -114,7 +124,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            "Hello, Welcome! The app isn't set up yet — ask the bot owner to set the WEBAPP_URL environment variable."
+            "👋 Welcome! The app isn't set up yet — ask the bot owner to set the WEBAPP_URL environment variable."
         )
 
 
@@ -151,7 +161,10 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔧 *Admin commands*\n\n"
         "/stats — see totals (entrepreneurs, services, ratings)\n"
         "/broadcast <message> — message every registered entrepreneur\n"
-        "/forceremove <name> — remove any entrepreneur's listing by name",
+        "/forceremove <name> — remove any entrepreneur's listing by name\n"
+        "/addadmin <telegram_id> — make someone an admin instantly (no redeploy)\n"
+        "/removeadmin <telegram_id> — remove a bot-added admin\n"
+        "/listadmins — see everyone with admin access",
         parse_mode="Markdown",
     )
 
@@ -204,6 +217,50 @@ async def force_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f'No entrepreneur found matching "{name}".')
 
 
+@admin_only
+async def add_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text(
+            "Usage: /addadmin <telegram_id>\n"
+            "The person you're adding must message @userinfobot to get their numeric ID first."
+        )
+        return
+
+    new_admin_id = int(context.args[0])
+    db.add_admin(new_admin_id, added_by=update.effective_user.id)
+    await update.message.reply_text(f"✅ {new_admin_id} is now an admin — no redeploy needed.")
+
+
+@admin_only
+async def remove_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text("Usage: /removeadmin <telegram_id>")
+        return
+
+    target_id = int(context.args[0])
+    if is_root_admin(target_id):
+        await update.message.reply_text(
+            "That's a root admin (set via Render's ADMIN_IDS) — remove them there instead, not here."
+        )
+        return
+
+    removed = db.remove_admin(target_id)
+    await update.message.reply_text("✅ Removed." if removed else "That ID wasn't a bot-added admin.")
+
+
+@admin_only
+async def list_admins_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ids_str = os.environ.get("ADMIN_IDS", "")
+    root_ids = {p.strip() for p in ids_str.replace("\n", ",").split(",") if p.strip()}
+    db_ids = db.get_admin_ids_from_db()
+
+    lines = ["👑 *Root admins* (Render ADMIN_IDS):"]
+    lines += [f"• {i}" for i in root_ids] or ["  (none set)"]
+    lines.append("\n🛠 *Added via /addadmin:*")
+    lines += [f"• {i}" for i in db_ids] or ["  (none)"]
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 def build_application():
     """
     Builds and configures the bot's Application object (registers every
@@ -232,6 +289,9 @@ def build_application():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("forceremove", force_remove))
+    app.add_handler(CommandHandler("addadmin", add_admin_cmd))
+    app.add_handler(CommandHandler("removeadmin", remove_admin_cmd))
+    app.add_handler(CommandHandler("listadmins", list_admins_cmd))
 
     return app
 

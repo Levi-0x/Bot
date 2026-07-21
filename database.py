@@ -112,6 +112,14 @@ def init_db():
             )
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS admins (
+                telegram_id INTEGER PRIMARY KEY,
+                added_by INTEGER,
+                added_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # ---- Migration: add any new columns that older deployed databases
         # (like one already running on Render) won't have yet. SQLite doesn't
         # support "ADD COLUMN IF NOT EXISTS", so we check what already exists
@@ -340,6 +348,29 @@ def rate_entrepreneur(name: str, rater_telegram_id: int, score: int):
             (match["id"], rater_telegram_id, score)
         )
         return True, f'Rated {match["name"]} {score}/5.'
+
+
+def get_admin_ids_from_db():
+    """Admins added via the bot (fast path) — on top of the ADMIN_IDS env var (root admins)."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT telegram_id FROM admins").fetchall()
+        return {row["telegram_id"] for row in rows}
+
+
+def add_admin(telegram_id: int, added_by: int):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO admins (telegram_id, added_by) VALUES (?, ?)",
+            (telegram_id, added_by)
+        )
+
+
+def remove_admin(telegram_id: int):
+    """Only removes DB-added admins. Root admins (from ADMIN_IDS) aren't stored here at all,
+    so this can never accidentally revoke someone set via Render — that's by design."""
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM admins WHERE telegram_id = ?", (telegram_id,))
+        return cursor.rowcount > 0
 
 
 def get_stats():
