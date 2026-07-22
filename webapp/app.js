@@ -30,6 +30,10 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function checkCircleHtml(title) {
+  return `<span class="check-circle" title="${escapeHtml(title)}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+}
+
 function avatarHtml(entrepreneur, size) {
   const style = size ? `width:${size}px;height:${size}px;font-size:${size * 0.34}px;` : "";
   if (entrepreneur.id && (entrepreneur.photo_base64 || entrepreneur.photo_file_id)) {
@@ -89,7 +93,7 @@ function renderResultCard(r) {
   const ratingText = r.avg_rating ? `⭐ ${r.avg_rating} (${r.rating_count} ratings)` : "No ratings yet";
   const serviceLabel = r.service || (r.services && r.services[0]) || "";
   const contactParts = [r.phone, r.socials].filter(Boolean).join(" · ");
-  const verifiedBadge = r.identity_verified ? ' <span class="verified-badge" title="Manually verified by an admin">✅</span>' : "";
+  const verifiedBadge = r.identity_verified ? ` ${checkCircleHtml("Manually verified by an admin")}` : "";
   return `
     <div class="result-card" data-open-id="${r.id}">
       ${avatarHtml(r)}
@@ -246,7 +250,7 @@ async function loadProfile() {
       </div>
     </div>
     <div class="detail-list">
-      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}${profile.phone_verified ? ' <span class="verified-badge" title="Confirmed via Telegram">✅</span>' : ""}</span></div>
+      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}${profile.phone_verified ? ` ${checkCircleHtml("Confirmed via Telegram")}` : ""}</span></div>
       <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
       <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
       <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "—"}</span></div>
@@ -291,7 +295,7 @@ async function loadProfile() {
 // button — everyone else sees why they're not eligible yet instead.
 function verificationMenuItem(profile) {
   if (profile.identity_verified) {
-    return `<div class="menu-item">✅ Verified listing<span class="verified-badge">Verified</span></div>`;
+    return `<div class="menu-item">Verified listing ${checkCircleHtml("Verified")}</div>`;
   }
   if (!profile.phone_verified || !(profile.photo_file_id || profile.photo_base64)) {
     return `<div class="menu-item" style="color:var(--text-muted);">Request Verification (verify phone + add photo first)</div>`;
@@ -324,8 +328,8 @@ async function openDetail(entrepreneurId) {
   }
   const profile = await res.json();
   const ratingText = profile.avg_rating ? `⭐ ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
-  const verifiedBadge = profile.identity_verified ? ' <span class="verified-badge" title="Manually verified by an admin">✅ Verified</span>' : "";
-  const phoneVerifiedBadge = profile.phone_verified ? ' <span class="verified-badge" title="Confirmed via Telegram">✅</span>' : "";
+  const verifiedBadge = profile.identity_verified ? ` ${checkCircleHtml("Manually verified by an admin")}` : "";
+  const phoneVerifiedBadge = profile.phone_verified ? ` ${checkCircleHtml("Confirmed via Telegram")}` : "";
 
   container.innerHTML = `
     <div class="profile-header-card">
@@ -388,7 +392,6 @@ let stepperTags = [];
 let currentStep = 1;
 let uploadedPhotoBase64 = null;
 let verifiedPhoneNumber = null;   // set once /api/check_phone confirms verification
-let capturedLocation = null;       // {latitude, longitude} if the person shared it
 let phonePollTimer = null;
 const TOTAL_STEPS = 5;
 
@@ -396,7 +399,6 @@ function openStepper(existingProfile) {
   currentStep = 1;
   stepperTags = existingProfile ? [...existingProfile.services] : [];
   uploadedPhotoBase64 = null;
-  capturedLocation = null;
   verifiedPhoneNumber = existingProfile?.phone_verified ? existingProfile.phone : null;
 
   document.getElementById("stepName").value = existingProfile?.name || "";
@@ -445,18 +447,29 @@ function renderTags() {
 // our own backend every 2s until it shows up, then unlock. This is what
 // makes "you can't continue without verifying" actually enforced rather
 // than just a label, since the Next button stays disabled the whole time.
-function refreshPhoneVerifiedUI() {
+// Three visual states: button (not started) -> waiting spinner (polling)
+// -> circular checkmark (confirmed). Only one is ever visible at a time.
+function refreshPhoneVerifiedUI(state) {
+  // state: "idle" | "waiting" | "verified" — inferred if not passed
+  if (!state) state = verifiedPhoneNumber ? "verified" : "idle";
+
   const display = document.getElementById("phoneVerifiedDisplay");
+  const waiting = document.getElementById("phoneWaitingState");
   const btn = document.getElementById("verifyPhoneBtn");
   const numberSpan = document.getElementById("phoneVerifiedNumber");
-  if (verifiedPhoneNumber) {
-    display.style.display = "flex";
+  const hint = document.getElementById("verifyPhoneHint");
+
+  display.style.display = state === "verified" ? "flex" : "none";
+  waiting.style.display = state === "waiting" ? "flex" : "none";
+  btn.style.display = state === "idle" ? "block" : "none";
+
+  if (state === "verified") {
     numberSpan.textContent = verifiedPhoneNumber;
-    btn.style.display = "none";
-    document.getElementById("verifyPhoneHint").textContent = "Verified — you're all set for this step.";
+    hint.textContent = "Verified — you're all set for this step.";
+  } else if (state === "waiting") {
+    hint.textContent = "";
   } else {
-    display.style.display = "none";
-    btn.style.display = "block";
+    hint.textContent = "Tap the button, then approve the \"Share your phone number?\" prompt Telegram shows you. That's the only tap needed — the app then checks automatically until it's confirmed. You can't continue to the next step until this is done, so listings can't use fake numbers.";
   }
 }
 
@@ -464,14 +477,13 @@ async function checkPhoneVerification() {
   const { verified, phone } = await apiGet("/api/check_phone");
   if (verified) {
     verifiedPhoneNumber = phone;
-    refreshPhoneVerifiedUI();
+    refreshPhoneVerifiedUI("verified");
     if (phonePollTimer) { clearInterval(phonePollTimer); phonePollTimer = null; }
   }
   return verified;
 }
 
 document.getElementById("verifyPhoneBtn").addEventListener("click", () => {
-  const hint = document.getElementById("verifyPhoneHint");
   if (typeof tg.requestContact !== "function") {
     const msg = "Your Telegram app version doesn't support this — please update Telegram to register.";
     tg.showAlert ? tg.showAlert(msg) : alert(msg);
@@ -479,7 +491,7 @@ document.getElementById("verifyPhoneBtn").addEventListener("click", () => {
   }
   tg.requestContact((shared) => {
     if (!shared) return;
-    hint.textContent = "Confirming with Telegram...";
+    refreshPhoneVerifiedUI("waiting");
     if (phonePollTimer) clearInterval(phonePollTimer);
     let attempts = 0;
     phonePollTimer = setInterval(async () => {
@@ -488,35 +500,12 @@ document.getElementById("verifyPhoneBtn").addEventListener("click", () => {
       if (ok || attempts > 15) { // ~30s timeout
         clearInterval(phonePollTimer);
         phonePollTimer = null;
-        if (!ok) hint.textContent = "Still waiting — check your chat with the bot, then tap Verify again.";
+        if (!ok) {
+          refreshPhoneVerifiedUI("idle");
+          document.getElementById("verifyPhoneHint").textContent = "Still waiting — check your chat with the bot for a confirmation message, then tap Verify again.";
+        }
       }
     }, 2000);
-  });
-});
-
-// ---- Location capture via Telegram's LocationManager (optional, best-effort) ----
-// Real limitation, not hidden: this API is fairly new (Bot API 8.0, late
-// 2024) and has known quirks — it doesn't work on Telegram Desktop at
-// all, and can be flaky on some Android builds. That's exactly why this
-// is optional and never blocks registration, unlike phone verification.
-document.getElementById("captureLocationBtn").addEventListener("click", () => {
-  const hint = document.getElementById("locationHint");
-  const btn = document.getElementById("captureLocationBtn");
-  if (!tg.LocationManager) {
-    hint.textContent = "Location isn't supported in this version of Telegram — that's fine, this step is optional.";
-    return;
-  }
-  hint.textContent = "Requesting location...";
-  tg.LocationManager.init(() => {
-    tg.LocationManager.getLocation((data) => {
-      if (data) {
-        capturedLocation = { latitude: data.latitude, longitude: data.longitude };
-        btn.textContent = "📍 Location captured";
-        hint.textContent = "Got it — this will be attached to your listing as an automated signal.";
-      } else {
-        hint.textContent = "Couldn't get your location (permission denied or unsupported here) — no problem, this is optional.";
-      }
-    });
   });
 });
 
@@ -579,6 +568,26 @@ function goToStep(step) {
   document.getElementById("stepLabel").textContent = `Step ${step} of ${TOTAL_STEPS}`;
   document.getElementById("stepBackBtn").style.visibility = step === 1 ? "hidden" : "visible";
   document.getElementById("stepNextBtn").textContent = step === TOTAL_STEPS ? "Submit" : "Next";
+
+  if (step === 5) {
+    const hasBusinessAddress = document.getElementById("stepBusinessAddress").value.trim().length > 0;
+    const badge = document.getElementById("homeAddressStepBadge");
+    const labelBadge = document.getElementById("homeAddressLabelBadge");
+    const explainer = document.getElementById("homeAddressExplainer");
+    if (hasBusinessAddress) {
+      badge.textContent = "optional";
+      badge.className = "opt";
+      labelBadge.textContent = "optional";
+      labelBadge.className = "opt";
+      explainer.textContent = "You've already added a business address, so this is optional — only fill it in if you'd like extra verification on file.";
+    } else {
+      badge.textContent = "*required";
+      badge.className = "req";
+      labelBadge.textContent = "*required";
+      labelBadge.className = "req";
+      explainer.textContent = "You didn't add a business address, so we need this instead — it's how we confirm real entrepreneurs for work-from-home services.";
+    }
+  }
 }
 
 document.getElementById("stepBackBtn").addEventListener("click", () => {
@@ -617,7 +626,10 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
 
   // Step 5 -> submit
   const homeAddress = document.getElementById("stepHomeAddress").value.trim();
-  if (!homeAddress) return tg.showAlert("Home address is required for verification.");
+  const businessAddress = document.getElementById("stepBusinessAddress").value.trim();
+  if (!homeAddress && !businessAddress) {
+    return tg.showAlert("Add a business address, or a home address if you work from home — we need at least one.");
+  }
 
   const payload = {
     initData: tg.initData,
@@ -625,7 +637,7 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
     email: document.getElementById("stepEmail").value.trim(),
     services: stepperTags,
     socials: document.getElementById("stepSocials").value.trim(),
-    business_address: document.getElementById("stepBusinessAddress").value.trim(),
+    business_address: businessAddress,
     website: document.getElementById("stepWebsite").value.trim(),
     home_address: homeAddress,
     // Note: phone is deliberately NOT sent here — the backend always uses
@@ -636,10 +648,6 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
     payload.photo_base64 = uploadedPhotoBase64;
   } else if (currentProfile?.id) {
     payload.keep_existing_photo = true; // editing without re-uploading a photo
-  }
-  if (capturedLocation) {
-    payload.latitude = capturedLocation.latitude;
-    payload.longitude = capturedLocation.longitude;
   }
 
   const { ok, data } = await apiPost("/api/register", payload);

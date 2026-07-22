@@ -255,6 +255,25 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 }
 .verified-phone-box span:first-child { font-weight: 600; color: var(--text); }
 
+.check-circle {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; background: var(--secondary); flex-shrink: 0;
+}
+.check-circle svg { width: 13px; height: 13px; }
+
+.waiting-box {
+  display: flex; align-items: center; gap: 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 14px; background: #FFFFFF; margin-bottom: 8px;
+}
+.waiting-box b { font-size: 13px; color: var(--text); }
+.waiting-box p { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.spinner {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  border: 3px solid var(--secondary-soft); border-top-color: var(--secondary);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .verified-badge { font-size: 11px; font-weight: 700; color: var(--secondary); white-space: nowrap; }
 
 /* ---------- Rating modal ---------- */

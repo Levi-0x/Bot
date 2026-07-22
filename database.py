@@ -177,8 +177,7 @@ def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[st
     """
     allowed_columns = {
         "name", "socials", "phone", "email", "photo_file_id", "photo_base64",
-        "business_address", "website", "home_address", "latitude", "longitude",
-        "phone_verified"
+        "business_address", "website", "home_address", "phone_verified"
     }
     fields = {k: v for k, v in fields.items() if k in allowed_columns}
 
@@ -447,14 +446,6 @@ def set_verified_phone(telegram_id: int, phone: str):
         )
 
 
-def set_location_captured_now(telegram_id: int):
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE entrepreneurs SET location_captured_at = CURRENT_TIMESTAMP WHERE telegram_id = ?",
-            (telegram_id,)
-        )
-
-
 def get_phone_verification(telegram_id: int):
     """Returns {'phone': ..., 'verified_at': ...} if this Telegram user has ever verified a phone, else None."""
     with get_connection() as conn:
@@ -648,8 +639,7 @@ def get_public_profile(entrepreneur_id: int):
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id, name, socials, phone, email, business_address, website,
-                   photo_file_id, photo_base64, created_at, phone_verified, identity_verified,
-                   location_captured_at
+                   photo_file_id, photo_base64, created_at, phone_verified, identity_verified
             FROM entrepreneurs WHERE id = ?
         """, (entrepreneur_id,)).fetchone()
         if not row:

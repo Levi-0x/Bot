@@ -184,8 +184,7 @@ def api_register():
     email = (body.get("email") or "").strip()
     photo_base64 = body.get("photo_base64") or ""
     home_address = (body.get("home_address") or "").strip()
-    latitude = body.get("latitude")
-    longitude = body.get("longitude")
+    business_address = (body.get("business_address") or "").strip()
 
     # Phone verification is enforced here too, not just in the Mini App's
     # UI — the "Next" button being disabled client-side is just a nicer
@@ -196,13 +195,16 @@ def api_register():
         return jsonify({"error": "phone_not_verified"}), 400
 
     # Compulsory fields — reject clearly if any are missing, rather than
-    # silently saving an incomplete listing.
+    # silently saving an incomplete listing. Address logic: a business
+    # address covers "where to find you" for shop/office-based entrepreneurs;
+    # home address is only required as a fallback for work-from-home
+    # entrepreneurs who have no public business address at all.
     missing = []
     if not name: missing.append("name")
     if not services: missing.append("services")
     if "@" not in email or "." not in email.split("@")[-1]: missing.append("email")
     if not photo_base64 and not body.get("keep_existing_photo"): missing.append("photo")
-    if not home_address: missing.append("home_address")
+    if not home_address and not business_address: missing.append("business_address_or_home_address")
     if missing:
         return jsonify({"error": "missing_fields", "fields": missing}), 400
 
@@ -213,19 +215,14 @@ def api_register():
         # always pulls the verified number from phone_verifications itself,
         # so there's no path where an unverified/edited number sneaks in.
         "email": email,
-        "business_address": (body.get("business_address") or "").strip(),
+        "business_address": business_address,
         "website": (body.get("website") or "").strip(),
         "home_address": home_address,
     }
     if photo_base64:
         fields["photo_base64"] = photo_base64
-    if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
-        fields["latitude"] = latitude
-        fields["longitude"] = longitude
 
     db.register_entrepreneur(user["id"], fields, services)
-    if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
-        db.set_location_captured_now(user["id"])
     return jsonify({"status": "ok"})
 
 

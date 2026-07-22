@@ -130,15 +130,28 @@
 
       <div class="field" style="margin-bottom:14px;">
         <span>Phone number <span class="req">*required — verified via Telegram</span></span>
+
         <div id="phoneVerifiedDisplay" class="verified-phone-box" style="display:none;">
           <span id="phoneVerifiedNumber"></span>
-          <span class="verified-badge">✅ Verified</span>
+          <span class="check-circle" title="Verified">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
         </div>
-        <button type="button" class="btn-primary" id="verifyPhoneBtn">✅ Verify with Telegram</button>
+
+        <div id="phoneWaitingState" class="waiting-box" style="display:none;">
+          <span class="spinner"></span>
+          <div>
+            <b>Waiting for Telegram...</b>
+            <p>You don't need to tap anything else — this confirms on its own within a few seconds.</p>
+          </div>
+        </div>
+
+        <button type="button" class="btn-primary" id="verifyPhoneBtn">Verify with Telegram</button>
       </div>
       <p class="field-hint" id="verifyPhoneHint" style="margin-bottom:14px;">
-        Tap above and approve the prompt — this confirms the number really belongs to your Telegram
-        account. You can't continue until this is done, so listings can't use fake numbers.
+        Tap the button, then approve the "Share your phone number?" prompt Telegram shows you.
+        That's the only tap needed — the app then checks automatically until it's confirmed.
+        You can't continue to the next step until this is done, so listings can't use fake numbers.
       </p>
 
       <label class="field">Email <span class="req">*required</span>
@@ -157,28 +170,19 @@
       <p class="field-hint">Add every service you offer — e.g. plumbing, leak repair.</p>
     </div>
 
-    <!-- Step 3: Contact & online presence (all optional) -->
+    <!-- Step 3: Contact & online presence -->
     <div class="step-panel" data-step-panel="3">
       <h3 class="step-title">Contact & Online Presence</h3>
       <label class="field">Social media handle <span class="opt">optional</span>
         <input type="text" id="stepSocials" placeholder="e.g. IG @janedoe_plumbing" />
       </label>
-      <label class="field">Business address <span class="opt">optional — shown publicly</span>
+      <label class="field">Business address <span class="opt" id="businessAddressLabel">optional — shown publicly</span>
         <input type="text" id="stepBusinessAddress" placeholder="e.g. 12 Market St, Lagos" />
       </label>
+      <p class="field-hint">Have a shop, office, or workspace clients can visit? Add it here. If you work from home instead, leave this blank — we'll ask for your home address separately (kept private).</p>
       <label class="field">Website <span class="opt">optional</span>
         <input type="text" id="stepWebsite" placeholder="e.g. https://janeplumbing.com" />
       </label>
-
-      <div class="field" style="margin-top:6px;">
-        <span>Confirm your location <span class="opt">optional</span></span>
-        <button type="button" class="btn-secondary" id="captureLocationBtn">📍 Share my current location</button>
-        <p class="field-hint" id="locationHint">
-          Adds an automated "location confirmed" signal to your listing — proves you were physically
-          near your stated address at signup. Not supported on every device (desktop especially), so
-          it's optional and never blocks registration.
-        </p>
-      </div>
     </div>
 
     <!-- Step 4: Photo -->
@@ -197,12 +201,13 @@
 
     <!-- Step 5: Home address (private) -->
     <div class="step-panel" data-step-panel="5">
-      <h3 class="step-title">Verification <span class="req">*required</span></h3>
+      <h3 class="step-title">Verification <span class="req" id="homeAddressStepBadge">*required</span></h3>
       <div class="privacy-notice">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.4 8.7 8 9 4.6-.3 8-4 8-9V5l-8-3Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         <span>Kept private. Never shown in search results or on your public profile — used for our internal verification only.</span>
       </div>
-      <label class="field">Home address <span class="req">*required</span>
+      <p class="field-hint" id="homeAddressExplainer" style="margin-bottom:10px;"></p>
+      <label class="field">Home address <span class="req" id="homeAddressLabelBadge">*required</span>
         <textarea id="stepHomeAddress" rows="3" placeholder="e.g. 5 Private Close, Lagos"></textarea>
       </label>
     </div>
