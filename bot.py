@@ -278,15 +278,10 @@ async def handle_shared_contact(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("Please share your own contact, not someone else's.")
         return
 
-    updated = db.set_verified_phone(update.effective_user.id, contact.phone_number)
-    if updated:
-        await update.message.reply_text(
-            "✅ Phone verified! Reopen the app (/app) to see the checkmark on your listing."
-        )
-    else:
-        await update.message.reply_text(
-            "You'll need to register first (via the app) before verifying your phone."
-        )
+    db.set_verified_phone(update.effective_user.id, contact.phone_number)
+    await update.message.reply_text(
+        "✅ Phone verified! Go back to the app — it should unlock automatically within a few seconds."
+    )
 
 
 @admin_only

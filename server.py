@@ -181,17 +181,25 @@ def api_register():
 
     name = (body.get("name") or "").strip()
     services = body.get("services") or []
-    phone = (body.get("phone") or "").strip()
     email = (body.get("email") or "").strip()
     photo_base64 = body.get("photo_base64") or ""
     home_address = (body.get("home_address") or "").strip()
+    latitude = body.get("latitude")
+    longitude = body.get("longitude")
+
+    # Phone verification is enforced here too, not just in the Mini App's
+    # UI — the "Next" button being disabled client-side is just a nicer
+    # experience; this is what actually stops someone from registering
+    # with an unverified number, even if they somehow bypassed the UI.
+    phone_verification = db.get_phone_verification(user["id"])
+    if not phone_verification:
+        return jsonify({"error": "phone_not_verified"}), 400
 
     # Compulsory fields — reject clearly if any are missing, rather than
     # silently saving an incomplete listing.
     missing = []
     if not name: missing.append("name")
     if not services: missing.append("services")
-    if not phone: missing.append("phone")
     if "@" not in email or "." not in email.split("@")[-1]: missing.append("email")
     if not photo_base64 and not body.get("keep_existing_photo"): missing.append("photo")
     if not home_address: missing.append("home_address")
@@ -201,7 +209,9 @@ def api_register():
     fields = {
         "name": name,
         "socials": (body.get("socials") or "").strip(),
-        "phone": phone,
+        # phone is NOT taken from the request body — register_entrepreneur
+        # always pulls the verified number from phone_verifications itself,
+        # so there's no path where an unverified/edited number sneaks in.
         "email": email,
         "business_address": (body.get("business_address") or "").strip(),
         "website": (body.get("website") or "").strip(),
@@ -209,8 +219,13 @@ def api_register():
     }
     if photo_base64:
         fields["photo_base64"] = photo_base64
+    if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
+        fields["latitude"] = latitude
+        fields["longitude"] = longitude
 
     db.register_entrepreneur(user["id"], fields, services)
+    if isinstance(latitude, (int, float)) and isinstance(longitude, (int, float)):
+        db.set_location_captured_now(user["id"])
     return jsonify({"status": "ok"})
 
 
@@ -349,6 +364,123 @@ def api_admin_broadcast():
             failed += 1
 
     return jsonify({"status": "ok", "sent": sent, "failed": failed})
+
+
+@flask_app.route("/api/admin/list_admins")
+def api_admin_list():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+
+    ids_str = os.environ.get("ADMIN_IDS", "")
+    root_ids = sorted({p.strip() for p in ids_str.replace("\n", ",").split(",") if p.strip()})
+    db_ids = sorted(db.get_admin_ids_from_db())
+    return jsonify({"root_admins": root_ids, "added_admins": db_ids})
+
+
+@flask_app.route("/api/admin/add_admin", methods=["POST"])
+def api_admin_add():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+
+    new_admin_id = body.get("telegram_id")
+    if not isinstance(new_admin_id, int):
+        return jsonify({"error": "invalid_telegram_id"}), 400
+
+    db.add_admin(new_admin_id, added_by=admin_user["id"])
+    return jsonify({"status": "ok"})
+
+
+@flask_app.route("/api/admin/remove_admin", methods=["POST"])
+def api_admin_remove():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    if not require_admin(body.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+
+    target_id = body.get("telegram_id")
+    if not isinstance(target_id, int):
+        return jsonify({"error": "invalid_telegram_id"}), 400
+
+    ids_str = os.environ.get("ADMIN_IDS", "")
+    root_ids = {p.strip() for p in ids_str.replace("\n", ",").split(",") if p.strip()}
+    if str(target_id) in root_ids:
+        return jsonify({"error": "is_root_admin"}), 400  # can't remove via app — only via Render
+
+    removed = db.remove_admin(target_id)
+    return jsonify({"status": "ok", "removed": removed})
+
+
+@flask_app.route("/api/check_phone")
+def api_check_phone():
+    """
+    Polled by the registration form after someone taps 'Verify with
+    Telegram' — Telegram delivers the verified number to the BOT chat,
+    not directly back to this webpage, so the frontend checks here
+    every couple seconds until it shows up.
+    """
+    bot_token = bot_module.load_token()
+    user = validate_init_data(request.args.get("initData", ""), bot_token)
+    if not user:
+        return jsonify({"error": "invalid_init_data"}), 401
+
+    verification = db.get_phone_verification(user["id"])
+    return jsonify({"verified": bool(verification), "phone": verification["phone"] if verification else None})
+
+
+@flask_app.route("/api/request_verification", methods=["POST"])
+def api_request_verification():
+    """
+    Lets an entrepreneur ask to be reviewed for the manual 'Verified'
+    badge — but only if they've already cleared automated checks (phone
+    verified + photo present). This is the mechanism that keeps admin
+    review from becoming 'sift through 1000 people': only people who
+    both want the badge AND already passed the cheap automated checks
+    ever land in front of an admin.
+    """
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    user = validate_init_data(body.get("initData", ""), bot_token)
+    if not user:
+        return jsonify({"error": "invalid_init_data"}), 401
+
+    profile = db.get_entrepreneur_profile(user["id"])
+    if not profile:
+        return jsonify({"error": "not_registered"}), 400
+    if not profile["phone_verified"]:
+        return jsonify({"error": "phone_not_verified"}), 400
+    if not (profile["photo_file_id"] or profile["photo_base64"]):
+        return jsonify({"error": "no_photo"}), 400
+
+    db.request_verification(user["id"])
+    return jsonify({"status": "ok"})
+
+
+@flask_app.route("/api/admin/verification_queue")
+def api_admin_verification_queue():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify(db.get_verification_queue())
+
+
+@flask_app.route("/api/admin/resolve_verification", methods=["POST"])
+def api_admin_resolve_verification():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    if not require_admin(body.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+
+    telegram_id = body.get("telegram_id")
+    approve = bool(body.get("approve"))
+    if not isinstance(telegram_id, int):
+        return jsonify({"error": "invalid_telegram_id"}), 400
+
+    db.resolve_verification_request(telegram_id, approve)
+    return jsonify({"status": "ok"})
 
 
 @flask_app.route("/api/admin/verify", methods=["POST"])

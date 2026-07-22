@@ -74,13 +74,21 @@
       <button class="btn-primary" id="adminBroadcastBtn">Send Broadcast</button>
     </div>
 
-    <div class="section-head"><h2>Verify a Listing</h2></div>
+    <div class="section-head"><h2>Manage Admins</h2></div>
     <div class="admin-card">
-      <input type="text" id="adminVerifyName" placeholder="Entrepreneur's name" />
-      <p class="field-hint">Do your own diligence first (call them, check the address) — this just adds a trust badge to their listing.</p>
-      <button class="btn-primary" id="adminVerifyBtn">Mark Verified</button>
-      <button class="btn-secondary" id="adminUnverifyBtn">Remove Verification</button>
+      <div id="adminListDisplay" class="field-hint" style="margin-bottom:4px;"></div>
+      <input type="text" id="adminIdInput" placeholder="Telegram ID (e.g. 123456789)" inputmode="numeric" />
+      <button class="btn-primary" id="addAdminBtn">Add Admin</button>
+      <button class="btn-secondary danger-text" id="removeAdminBtn">Remove Admin</button>
+      <p class="field-hint">They need to message @userinfobot first to get their numeric ID.</p>
     </div>
+
+    <div class="section-head"><h2>Verification Requests</h2></div>
+    <p class="field-hint" style="margin:-8px 0 12px;">
+      Only entrepreneurs who've already verified their phone AND uploaded a photo can request this —
+      and only those who actually ask show up here. You're not reviewing everyone, just this queue.
+    </p>
+    <div id="verificationQueue"></div>
 
     <div class="section-head"><h2>Remove a Listing</h2></div>
     <div class="admin-card">
@@ -119,15 +127,20 @@
       <label class="field">Full name / business name <span class="req">*required</span>
         <input type="text" id="stepName" placeholder="e.g. Jane Doe" />
       </label>
-      <label class="field">Phone number <span class="req">*required</span>
-        <input type="tel" id="stepPhone" placeholder="e.g. +234 801 234 5678" />
-      </label>
-      <button type="button" class="btn-secondary" id="verifyPhoneBtn" style="margin-bottom:14px;">
-        ✅ Verify with Telegram
-      </button>
+
+      <div class="field" style="margin-bottom:14px;">
+        <span>Phone number <span class="req">*required — verified via Telegram</span></span>
+        <div id="phoneVerifiedDisplay" class="verified-phone-box" style="display:none;">
+          <span id="phoneVerifiedNumber"></span>
+          <span class="verified-badge">✅ Verified</span>
+        </div>
+        <button type="button" class="btn-primary" id="verifyPhoneBtn">✅ Verify with Telegram</button>
+      </div>
       <p class="field-hint" id="verifyPhoneHint" style="margin-bottom:14px;">
-        Confirms your number really belongs to your Telegram account — shows a badge on your listing.
+        Tap above and approve the prompt — this confirms the number really belongs to your Telegram
+        account. You can't continue until this is done, so listings can't use fake numbers.
       </p>
+
       <label class="field">Email <span class="req">*required</span>
         <input type="email" id="stepEmail" placeholder="e.g. jane@example.com" />
       </label>
@@ -155,6 +168,16 @@
       <label class="field">Website <span class="opt">optional</span>
         <input type="text" id="stepWebsite" placeholder="e.g. https://janeplumbing.com" />
       </label>
+
+      <div class="field" style="margin-top:6px;">
+        <span>Confirm your location <span class="opt">optional</span></span>
+        <button type="button" class="btn-secondary" id="captureLocationBtn">📍 Share my current location</button>
+        <p class="field-hint" id="locationHint">
+          Adds an automated "location confirmed" signal to your listing — proves you were physically
+          near your stated address at signup. Not supported on every device (desktop especially), so
+          it's optional and never blocks registration.
+        </p>
+      </div>
     </div>
 
     <!-- Step 4: Photo -->

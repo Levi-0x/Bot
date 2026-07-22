@@ -111,6 +111,20 @@ def init_db():
                 FOREIGN KEY (entrepreneur_id) REFERENCES entrepreneurs(id) ON DELETE CASCADE
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS phone_verifications (
+                telegram_id INTEGER PRIMARY KEY,
+                phone TEXT NOT NULL,
+                verified_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS verification_requests (
+                telegram_id INTEGER PRIMARY KEY,
+                requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'pending'
+            )
+        """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS admins (
@@ -137,6 +151,9 @@ def init_db():
             "phone_verified": "INTEGER DEFAULT 0",
             "identity_verified": "INTEGER DEFAULT 0",
             "verified_at": "TEXT",
+            "latitude": "REAL",
+            "longitude": "REAL",
+            "location_captured_at": "TEXT",
         }
         for column, col_type in new_columns.items():
             if column not in existing_columns:
@@ -160,11 +177,24 @@ def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[st
     """
     allowed_columns = {
         "name", "socials", "phone", "email", "photo_file_id", "photo_base64",
-        "business_address", "website", "home_address"
+        "business_address", "website", "home_address", "latitude", "longitude",
+        "phone_verified"
     }
     fields = {k: v for k, v in fields.items() if k in allowed_columns}
 
     with get_connection() as conn:
+        # If this person already verified a phone via Telegram's own contact
+        # share, that number is authoritative — we use it regardless of
+        # whatever was typed into the phone field, and mark it verified.
+        # This is what makes phone verification meaningful rather than
+        # cosmetic: the stored number is guaranteed to be the real one.
+        verified = conn.execute(
+            "SELECT phone FROM phone_verifications WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        if verified:
+            fields["phone"] = verified["phone"]
+            fields["phone_verified"] = 1
+
         existing = conn.execute(
             "SELECT id FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
@@ -398,15 +428,83 @@ def set_verified_phone(telegram_id: int, phone: str):
     """
     Called when someone shares their REAL phone number via Telegram's native
     requestContact() flow — Telegram itself confirms this number belongs to
-    that account, so we trust it and mark phone_verified=1. Returns False if
-    they haven't registered yet (nothing to attach it to).
+    that account. Stored in its own table (not just on the entrepreneurs
+    row) because this needs to work BEFORE someone finishes registering —
+    the Mini App checks this table to gate the registration form itself,
+    not just to display a badge afterward. If they're already registered,
+    we also sync it onto their live listing immediately.
     """
     with get_connection() as conn:
-        cursor = conn.execute(
+        conn.execute("""
+            INSERT INTO phone_verifications (telegram_id, phone, verified_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(telegram_id) DO UPDATE SET phone=excluded.phone, verified_at=CURRENT_TIMESTAMP
+        """, (telegram_id, phone))
+
+        conn.execute(
             "UPDATE entrepreneurs SET phone = ?, phone_verified = 1 WHERE telegram_id = ?",
             (phone, telegram_id)
         )
-        return cursor.rowcount > 0
+
+
+def set_location_captured_now(telegram_id: int):
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE entrepreneurs SET location_captured_at = CURRENT_TIMESTAMP WHERE telegram_id = ?",
+            (telegram_id,)
+        )
+
+
+def get_phone_verification(telegram_id: int):
+    """Returns {'phone': ..., 'verified_at': ...} if this Telegram user has ever verified a phone, else None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT phone, verified_at FROM phone_verifications WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def request_verification(telegram_id: int):
+    """
+    An entrepreneur asks to be reviewed for the manual 'Verified' badge.
+    This is opt-in and pre-filtered on the caller side (server.py only
+    allows this if phone is already verified and a photo exists) — the
+    point is admins only ever look at a small, self-selected queue of
+    people who actually want the badge, not every registered entrepreneur.
+    """
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO verification_requests (telegram_id, status) VALUES (?, 'pending')",
+            (telegram_id,)
+        )
+
+
+def get_verification_queue():
+    """Pending verification requests, enriched with what an admin needs to make a quick call."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT
+                e.telegram_id, e.id, e.name, e.phone, e.phone_verified, e.business_address,
+                e.photo_file_id, e.photo_base64, vr.requested_at
+            FROM verification_requests vr
+            JOIN entrepreneurs e ON e.telegram_id = vr.telegram_id
+            WHERE vr.status = 'pending'
+            ORDER BY vr.requested_at ASC
+        """).fetchall()
+        return [dict(row) for row in rows]
+
+
+def resolve_verification_request(entrepreneur_telegram_id: int, approve: bool):
+    """Admin approves or rejects a pending request — updates both the queue and the live badge."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE verification_requests SET status = ? WHERE telegram_id = ?",
+            ("approved" if approve else "rejected", entrepreneur_telegram_id)
+        )
+        conn.execute(
+            "UPDATE entrepreneurs SET identity_verified = ?, verified_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE verified_at END WHERE telegram_id = ?",
+            (1 if approve else 0, approve, entrepreneur_telegram_id)
+        )
 
 
 def set_identity_verified_by_name(name: str, verified: bool):
@@ -550,7 +648,8 @@ def get_public_profile(entrepreneur_id: int):
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id, name, socials, phone, email, business_address, website,
-                   photo_file_id, photo_base64, created_at, phone_verified, identity_verified
+                   photo_file_id, photo_base64, created_at, phone_verified, identity_verified,
+                   location_captured_at
             FROM entrepreneurs WHERE id = ?
         """, (entrepreneur_id,)).fetchone()
         if not row:

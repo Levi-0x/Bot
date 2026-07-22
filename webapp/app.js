@@ -251,6 +251,7 @@ async function loadProfile() {
       <div class="detail-row"><span class="label">Home address<span class="private-badge">Private</span></span><span class="value">${escapeHtml(profile.home_address) || "—"}</span></div>
     </div>
     <div class="menu-list">
+      ${verificationMenuItem(profile)}
       <div class="menu-item" id="editListingBtn">Edit My Listing<span class="chevron">›</span></div>
       <div class="menu-item danger" id="removeListingBtn">Remove My Listing<span class="chevron">›</span></div>
     </div>`;
@@ -264,6 +265,36 @@ async function loadProfile() {
       loadProfile();
     });
   });
+
+  const requestBtn = document.getElementById("requestVerificationBtn");
+  if (requestBtn) {
+    requestBtn.addEventListener("click", async () => {
+      const { ok, data } = await apiPost("/api/request_verification", { initData: tg.initData });
+      if (ok) {
+        tg.showAlert("Request sent — an admin will review it soon.");
+        loadProfile();
+      } else if (data?.error === "phone_not_verified") {
+        tg.showAlert("Verify your phone first (edit your listing, Step 1).");
+      } else if (data?.error === "no_photo") {
+        tg.showAlert("Add a profile photo first (edit your listing, Step 4).");
+      } else {
+        tg.showAlert("Something went wrong. Please try again.");
+      }
+    });
+  }
+}
+
+// Eligibility gate lives here too, mirroring the backend: only entrepreneurs
+// who've already verified their phone and uploaded a photo can even see the
+// button — everyone else sees why they're not eligible yet instead.
+function verificationMenuItem(profile) {
+  if (profile.identity_verified) {
+    return `<div class="menu-item">✅ Verified listing<span class="verified-badge">Verified</span></div>`;
+  }
+  if (!profile.phone_verified || !(profile.photo_file_id || profile.photo_base64)) {
+    return `<div class="menu-item" style="color:var(--text-muted);">Request Verification (verify phone + add photo first)</div>`;
+  }
+  return `<div class="menu-item" id="requestVerificationBtn">Request Verification Badge<span class="chevron">›</span></div>`;
 }
 
 // ============================================================
@@ -354,20 +385,27 @@ document.getElementById("detailBack").addEventListener("click", () => showView(d
 let stepperTags = [];
 let currentStep = 1;
 let uploadedPhotoBase64 = null;
+let verifiedPhoneNumber = null;   // set once /api/check_phone confirms verification
+let capturedLocation = null;       // {latitude, longitude} if the person shared it
+let phonePollTimer = null;
 const TOTAL_STEPS = 5;
 
 function openStepper(existingProfile) {
   currentStep = 1;
   stepperTags = existingProfile ? [...existingProfile.services] : [];
   uploadedPhotoBase64 = null;
+  capturedLocation = null;
+  verifiedPhoneNumber = existingProfile?.phone_verified ? existingProfile.phone : null;
 
   document.getElementById("stepName").value = existingProfile?.name || "";
-  document.getElementById("stepPhone").value = existingProfile?.phone || "";
   document.getElementById("stepEmail").value = existingProfile?.email || "";
   document.getElementById("stepSocials").value = existingProfile?.socials || "";
   document.getElementById("stepBusinessAddress").value = existingProfile?.business_address || "";
   document.getElementById("stepWebsite").value = existingProfile?.website || "";
   document.getElementById("stepHomeAddress").value = existingProfile?.home_address || "";
+
+  refreshPhoneVerifiedUI();
+  checkPhoneVerification(); // in case they verified in an earlier session
 
   const previewImg = document.getElementById("photoPreviewImg");
   const placeholderIcon = document.getElementById("photoPlaceholderIcon");
@@ -399,23 +437,84 @@ function renderTags() {
   });
 }
 
-// ---- Phone verification via Telegram's native requestContact ----
-// Note: Telegram delivers the actual verified phone number to the BOT
-// (as a chat message), not directly back to this webpage — that's by
-// design on Telegram's part, for privacy. So we can't instantly show the
-// checkmark here; we tell the person to check the chat, where the bot
-// confirms it immediately and they can reopen the app to see the badge.
+// ---- Phone verification: real gating, not cosmetic ----
+// Telegram delivers the verified number to the BOT chat (a message),
+// not directly back to this webpage — so after requesting it, we poll
+// our own backend every 2s until it shows up, then unlock. This is what
+// makes "you can't continue without verifying" actually enforced rather
+// than just a label, since the Next button stays disabled the whole time.
+function refreshPhoneVerifiedUI() {
+  const display = document.getElementById("phoneVerifiedDisplay");
+  const btn = document.getElementById("verifyPhoneBtn");
+  const numberSpan = document.getElementById("phoneVerifiedNumber");
+  if (verifiedPhoneNumber) {
+    display.style.display = "flex";
+    numberSpan.textContent = verifiedPhoneNumber;
+    btn.style.display = "none";
+    document.getElementById("verifyPhoneHint").textContent = "Verified — you're all set for this step.";
+  } else {
+    display.style.display = "none";
+    btn.style.display = "block";
+  }
+}
+
+async function checkPhoneVerification() {
+  const { verified, phone } = await apiGet("/api/check_phone");
+  if (verified) {
+    verifiedPhoneNumber = phone;
+    refreshPhoneVerifiedUI();
+    if (phonePollTimer) { clearInterval(phonePollTimer); phonePollTimer = null; }
+  }
+  return verified;
+}
+
 document.getElementById("verifyPhoneBtn").addEventListener("click", () => {
   const hint = document.getElementById("verifyPhoneHint");
   if (typeof tg.requestContact !== "function") {
-    const msg = "Your Telegram app version doesn't support this yet — you can still enter your phone manually.";
+    const msg = "Your Telegram app version doesn't support this — please update Telegram to register.";
     tg.showAlert ? tg.showAlert(msg) : alert(msg);
     return;
   }
   tg.requestContact((shared) => {
-    if (shared) {
-      hint.textContent = "Requested! Check your chat with the bot — it'll confirm there, then reopen the app to see your ✅ badge.";
-    }
+    if (!shared) return;
+    hint.textContent = "Confirming with Telegram...";
+    if (phonePollTimer) clearInterval(phonePollTimer);
+    let attempts = 0;
+    phonePollTimer = setInterval(async () => {
+      attempts++;
+      const ok = await checkPhoneVerification();
+      if (ok || attempts > 15) { // ~30s timeout
+        clearInterval(phonePollTimer);
+        phonePollTimer = null;
+        if (!ok) hint.textContent = "Still waiting — check your chat with the bot, then tap Verify again.";
+      }
+    }, 2000);
+  });
+});
+
+// ---- Location capture via Telegram's LocationManager (optional, best-effort) ----
+// Real limitation, not hidden: this API is fairly new (Bot API 8.0, late
+// 2024) and has known quirks — it doesn't work on Telegram Desktop at
+// all, and can be flaky on some Android builds. That's exactly why this
+// is optional and never blocks registration, unlike phone verification.
+document.getElementById("captureLocationBtn").addEventListener("click", () => {
+  const hint = document.getElementById("locationHint");
+  const btn = document.getElementById("captureLocationBtn");
+  if (!tg.LocationManager) {
+    hint.textContent = "Location isn't supported in this version of Telegram — that's fine, this step is optional.";
+    return;
+  }
+  hint.textContent = "Requesting location...";
+  tg.LocationManager.init(() => {
+    tg.LocationManager.getLocation((data) => {
+      if (data) {
+        capturedLocation = { latitude: data.latitude, longitude: data.longitude };
+        btn.textContent = "📍 Location captured";
+        hint.textContent = "Got it — this will be attached to your listing as an automated signal.";
+      } else {
+        hint.textContent = "Couldn't get your location (permission denied or unsupported here) — no problem, this is optional.";
+      }
+    });
   });
 });
 
@@ -487,10 +586,14 @@ document.getElementById("stepBackBtn").addEventListener("click", () => {
 document.getElementById("stepNextBtn").addEventListener("click", async () => {
   if (currentStep === 1) {
     const name = document.getElementById("stepName").value.trim();
-    const phone = document.getElementById("stepPhone").value.trim();
     const email = document.getElementById("stepEmail").value.trim();
     if (!name) return tg.showAlert("Please enter your name.");
-    if (!phone) return tg.showAlert("Please enter your phone number.");
+    if (!verifiedPhoneNumber) {
+      // Double-check with the backend in case verification landed while they
+      // weren't polling (e.g. they verified, closed the app, reopened later).
+      const justVerified = await checkPhoneVerification();
+      if (!justVerified) return tg.showAlert("Please verify your phone with Telegram before continuing.");
+    }
     if (!email.includes("@") || !email.split("@").pop().includes(".")) return tg.showAlert("Please enter a valid email.");
     goToStep(2);
     return;
@@ -517,24 +620,33 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
   const payload = {
     initData: tg.initData,
     name: document.getElementById("stepName").value.trim(),
-    phone: document.getElementById("stepPhone").value.trim(),
     email: document.getElementById("stepEmail").value.trim(),
     services: stepperTags,
     socials: document.getElementById("stepSocials").value.trim(),
     business_address: document.getElementById("stepBusinessAddress").value.trim(),
     website: document.getElementById("stepWebsite").value.trim(),
     home_address: homeAddress,
+    // Note: phone is deliberately NOT sent here — the backend always uses
+    // whatever's in phone_verifications for this Telegram user, so there's
+    // no path where an edited/fake number could sneak into the payload.
   };
   if (uploadedPhotoBase64) {
     payload.photo_base64 = uploadedPhotoBase64;
   } else if (currentProfile?.id) {
     payload.keep_existing_photo = true; // editing without re-uploading a photo
   }
+  if (capturedLocation) {
+    payload.latitude = capturedLocation.latitude;
+    payload.longitude = capturedLocation.longitude;
+  }
 
   const { ok, data } = await apiPost("/api/register", payload);
 
   if (ok) {
     showView("success");
+  } else if (data?.error === "phone_not_verified") {
+    tg.showAlert("Your phone verification expired or wasn't found — please verify again on Step 1.");
+    goToStep(1);
   } else {
     tg.showAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong. Please try again.");
   }
@@ -589,6 +701,18 @@ async function loadAdminPanel() {
     <div class="stat-card"><b>${stats.entrepreneurs}</b><span>Entrepreneurs</span></div>
     <div class="stat-card"><b>${stats.services}</b><span>Services</span></div>
     <div class="stat-card"><b>${stats.ratings}</b><span>Ratings</span></div>`;
+
+  await refreshAdminList();
+  await loadVerificationQueue();
+}
+
+async function refreshAdminList() {
+  const res = await fetch(`/api/admin/list_admins?initData=${encodeURIComponent(tg.initData)}`);
+  const data = await res.json();
+  if (!res.ok) return;
+  document.getElementById("adminListDisplay").innerHTML =
+    `<b>Root (Render):</b> ${data.root_admins.join(", ") || "none"}<br>` +
+    `<b>Added via app/bot:</b> ${data.added_admins.join(", ") || "none"}`;
 }
 
 document.getElementById("adminBack").addEventListener("click", () => showView("profile"));
@@ -605,18 +729,61 @@ document.getElementById("adminBroadcastBtn").addEventListener("click", () => {
   });
 });
 
-document.getElementById("adminVerifyBtn").addEventListener("click", async () => {
-  const name = document.getElementById("adminVerifyName").value.trim();
-  if (!name) return tg.showAlert("Enter a name first.");
-  const { ok, data } = await apiPost("/api/admin/verify", { initData: tg.initData, name, verified: true });
-  tg.showAlert(ok && data.found ? "✅ Marked as verified." : "No matching listing found.");
+async function loadVerificationQueue() {
+  const res = await fetch(`/api/admin/verification_queue?initData=${encodeURIComponent(tg.initData)}`);
+  const queue = await res.json();
+  const container = document.getElementById("verificationQueue");
+
+  if (!res.ok || !queue.length) {
+    container.innerHTML = `<p class="field-hint">No pending requests right now.</p>`;
+    return;
+  }
+
+  container.innerHTML = queue.map((r) => `
+    <div class="admin-card">
+      <div style="display:flex; gap:10px; align-items:center;">
+        ${avatarHtml(r, 40)}
+        <div>
+          <b>${escapeHtml(r.name)}</b>
+          <p class="field-hint" style="margin:2px 0 0;">${escapeHtml(r.phone)} · requested ${r.requested_at?.slice(0, 10)}</p>
+        </div>
+      </div>
+      <button class="btn-primary" data-approve="${r.telegram_id}">✅ Approve</button>
+      <button class="btn-secondary danger-text" data-reject="${r.telegram_id}">Reject</button>
+    </div>`).join("");
+
+  container.querySelectorAll("[data-approve]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await apiPost("/api/admin/resolve_verification", { initData: tg.initData, telegram_id: Number(btn.dataset.approve), approve: true });
+      loadVerificationQueue();
+    });
+  });
+  container.querySelectorAll("[data-reject]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await apiPost("/api/admin/resolve_verification", { initData: tg.initData, telegram_id: Number(btn.dataset.reject), approve: false });
+      loadVerificationQueue();
+    });
+  });
+}
+
+document.getElementById("addAdminBtn").addEventListener("click", async () => {
+  const id = Number(document.getElementById("adminIdInput").value.trim());
+  if (!id) return tg.showAlert("Enter a valid numeric Telegram ID.");
+  const { ok } = await apiPost("/api/admin/add_admin", { initData: tg.initData, telegram_id: id });
+  tg.showAlert(ok ? "✅ Admin added." : "Something went wrong.");
+  if (ok) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); }
 });
 
-document.getElementById("adminUnverifyBtn").addEventListener("click", async () => {
-  const name = document.getElementById("adminVerifyName").value.trim();
-  if (!name) return tg.showAlert("Enter a name first.");
-  const { ok, data } = await apiPost("/api/admin/verify", { initData: tg.initData, name, verified: false });
-  tg.showAlert(ok && data.found ? "Verification removed." : "No matching listing found.");
+document.getElementById("removeAdminBtn").addEventListener("click", async () => {
+  const id = Number(document.getElementById("adminIdInput").value.trim());
+  if (!id) return tg.showAlert("Enter a valid numeric Telegram ID.");
+  const { ok, data } = await apiPost("/api/admin/remove_admin", { initData: tg.initData, telegram_id: id });
+  if (data?.error === "is_root_admin") {
+    tg.showAlert("That's a root admin (set in Render) — remove them there instead.");
+  } else {
+    tg.showAlert(ok && data.removed ? "Admin removed." : "That ID wasn't a bot-added admin.");
+    if (ok && data.removed) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); }
+  }
 });
 
 document.getElementById("adminRemoveBtn").addEventListener("click", () => {
