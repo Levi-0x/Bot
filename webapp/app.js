@@ -219,7 +219,9 @@ async function loadProfile() {
   if (!profile) {
     container.innerHTML = `
       <div class="profile-cta">
-        <div class="avatar-circle" style="background:var(--secondary);width:56px;height:56px;font-size:20px;margin:0 auto 10px;">+</div>
+        <div class="avatar-circle" style="background:var(--secondary);width:56px;height:56px;margin:0 auto 10px;">
+          <svg viewBox="0 0 24 24" fill="none" style="width:24px;height:24px;"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.4" stroke-linecap="round"/></svg>
+        </div>
         <h3>You're not listed yet</h3>
         <p>Create your listing so people searching for your services can find you.</p>
         <button class="btn-primary" id="registerCta">Register as Entrepreneur</button>
