@@ -116,7 +116,7 @@ def app_button_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if WEBAPP_URL:
         await update.message.reply_text(
-            "👋 Welcome to VentureVault!\n\n"
+            "👋 Welcome to GrowthHub!\n\n"
             "Find trusted entrepreneurs and freelancers for any job, or list "
             "your own services and get discovered.\n\n"
             "Tap below to get started:",
@@ -164,9 +164,7 @@ async def admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/forceremove <name> — remove any entrepreneur's listing by name\n"
         "/addadmin <telegram_id> — make someone an admin instantly (no redeploy)\n"
         "/removeadmin <telegram_id> — remove a bot-added admin\n"
-        "/listadmins — see everyone with admin access\n"
-        "/verify <name> — mark a listing as manually verified (shows a badge)\n"
-        "/unverify <name> — remove that badge",
+        "/listadmins — see everyone with admin access",
         parse_mode="Markdown",
     )
 
@@ -284,30 +282,6 @@ async def handle_shared_contact(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-@admin_only
-async def verify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /verify <name>\nExample: /verify Jane Doe")
-        return
-    name = " ".join(context.args)
-    success, telegram_id = db.set_identity_verified_by_name(name, True)
-    await update.message.reply_text(
-        f'✅ Marked "{name}" as verified.' if success else f'No entrepreneur found matching "{name}".'
-    )
-
-
-@admin_only
-async def unverify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("Usage: /unverify <name>")
-        return
-    name = " ".join(context.args)
-    success, telegram_id = db.set_identity_verified_by_name(name, False)
-    await update.message.reply_text(
-        f'Removed verification from "{name}".' if success else f'No entrepreneur found matching "{name}".'
-    )
-
-
 def build_application():
     """
     Builds and configures the bot's Application object (registers every
@@ -339,8 +313,6 @@ def build_application():
     app.add_handler(CommandHandler("addadmin", add_admin_cmd))
     app.add_handler(CommandHandler("removeadmin", remove_admin_cmd))
     app.add_handler(CommandHandler("listadmins", list_admins_cmd))
-    app.add_handler(CommandHandler("verify", verify_cmd))
-    app.add_handler(CommandHandler("unverify", unverify_cmd))
     app.add_handler(MessageHandler(filters.CONTACT, handle_shared_contact))
 
     return app

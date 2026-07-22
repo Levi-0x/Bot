@@ -107,6 +107,8 @@ def init_db():
                 entrepreneur_id INTEGER NOT NULL,
                 rater_telegram_id INTEGER NOT NULL,
                 score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
+                comment TEXT,
+                rater_name TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (entrepreneur_id) REFERENCES entrepreneurs(id) ON DELETE CASCADE
             )
@@ -116,13 +118,6 @@ def init_db():
                 telegram_id INTEGER PRIMARY KEY,
                 phone TEXT NOT NULL,
                 verified_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS verification_requests (
-                telegram_id INTEGER PRIMARY KEY,
-                requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                status TEXT DEFAULT 'pending'
             )
         """)
 
@@ -158,6 +153,14 @@ def init_db():
         for column, col_type in new_columns.items():
             if column not in existing_columns:
                 conn.execute(f"ALTER TABLE entrepreneurs ADD COLUMN {column} {col_type}")
+
+        # Same idea for the ratings table — comment/rater_name are new
+        # columns older deployed databases won't have yet.
+        existing_rating_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ratings)")}
+        new_rating_columns = {"comment": "TEXT", "rater_name": "TEXT"}
+        for column, col_type in new_rating_columns.items():
+            if column not in existing_rating_columns:
+                conn.execute(f"ALTER TABLE ratings ADD COLUMN {column} {col_type}")
 
 
 # ---------- Entrepreneur registration ----------
@@ -255,7 +258,6 @@ def get_top_entrepreneurs(limit: int = 5):
                 e.photo_file_id,
                 e.photo_base64,
                 e.phone_verified,
-                e.identity_verified,
                 GROUP_CONCAT(DISTINCT s.name) AS services_csv,
                 ROUND(AVG(r.score), 1) AS avg_rating,
                 COUNT(DISTINCT r.id) AS rating_count
@@ -293,31 +295,46 @@ def get_all_services():
         return [dict(row) for row in rows]
 
 
-def find_by_service(service_query: str):
+def find_by_service(query: str):
     """
-    Returns a list of entrepreneurs whose service matches the query.
-    Matching happens in two passes:
-      1. Exact/partial text match (fast, catches most cases directly)
-      2. Stem match — "teacher" typed in finds "teaching" registered,
-         because both reduce to the root "teach"
-    Each result includes their name, socials, matched service, and average rating.
+    Searches entrepreneurs by service (with stemming, e.g. "teacher" finds
+    "teaching"), OR by their name, OR by their business address — whichever
+    matches. This is deliberately one combined search rather than three
+    separate ones, since from the user's side it's just "search" — they
+    shouldn't need to know which field they're matching against.
     """
-    query_stem = _stem(service_query)
+    query_stem = _stem(query)
+    query_lower = query.strip().lower()
 
     with get_connection() as conn:
         all_services = [row["name"] for row in conn.execute("SELECT name FROM services").fetchall()]
-
         matching_services = [
             name for name in all_services
-            if service_query.strip().lower() in name.lower()  # direct substring match
-            or query_stem in _stem(name)                       # stemmed root match
+            if query_lower in name.lower()
+            or query_stem in _stem(name)
             or _stem(name) in query_stem
         ]
 
-        if not matching_services:
+        matching_ids = set()
+
+        if matching_services:
+            placeholders = ",".join("?" for _ in matching_services)
+            rows = conn.execute(f"""
+                SELECT DISTINCT es.entrepreneur_id FROM entrepreneur_services es
+                JOIN services s ON s.id = es.service_id
+                WHERE s.name IN ({placeholders})
+            """, matching_services).fetchall()
+            matching_ids |= {row["entrepreneur_id"] for row in rows}
+
+        name_or_address_rows = conn.execute("""
+            SELECT id FROM entrepreneurs WHERE name LIKE ? OR business_address LIKE ?
+        """, (f"%{query_lower}%", f"%{query_lower}%")).fetchall()
+        matching_ids |= {row["id"] for row in name_or_address_rows}
+
+        if not matching_ids:
             return []
 
-        placeholders = ",".join("?" for _ in matching_services)
+        placeholders = ",".join("?" for _ in matching_ids)
         rows = conn.execute(f"""
             SELECT
                 e.id,
@@ -330,30 +347,38 @@ def find_by_service(service_query: str):
                 e.photo_file_id,
                 e.photo_base64,
                 e.phone_verified,
-                e.identity_verified,
-                s.name AS service,
+                GROUP_CONCAT(DISTINCT s.name) AS services_csv,
                 ROUND(AVG(r.score), 1) AS avg_rating,
-                COUNT(r.id) AS rating_count
+                COUNT(DISTINCT r.id) AS rating_count
             FROM entrepreneurs e
-            JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
-            JOIN services s ON s.id = es.service_id
+            LEFT JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
+            LEFT JOIN services s ON s.id = es.service_id
             LEFT JOIN ratings r ON r.entrepreneur_id = e.id
-            WHERE s.name IN ({placeholders})
-            GROUP BY e.id, s.name
-            ORDER BY avg_rating DESC NULLS LAST
-        """, matching_services).fetchall()
-        return [dict(row) for row in rows]
+            WHERE e.id IN ({placeholders})
+            GROUP BY e.id
+            ORDER BY avg_rating DESC NULLS LAST, rating_count DESC
+        """, list(matching_ids)).fetchall()
+
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["services"] = d["services_csv"].split(",") if d["services_csv"] else []
+            del d["services_csv"]
+            results.append(d)
+        return results
 
 
 # ---------- Ratings ----------
 
-def rate_entrepreneur_by_id(entrepreneur_id: int, rater_telegram_id: int, score: int):
+def rate_entrepreneur_by_id(entrepreneur_id: int, rater_telegram_id: int, score: int, comment: str = "", rater_name: str = ""):
     """
-    Adds a rating (1-5) for an entrepreneur found by their internal id —
-    used by the Mini App's detail page. If this rater already rated this
-    entrepreneur before, their existing rating is UPDATED in place rather
-    than adding a new row — otherwise one person could submit unlimited
-    ratings and skew the average arbitrarily.
+    Adds a rating (1-5), with an optional comment, for an entrepreneur
+    found by their internal id — used by the Mini App's detail page. If
+    this rater already rated this entrepreneur before, their existing
+    rating is UPDATED in place rather than adding a new row — otherwise
+    one person could submit unlimited ratings and skew the average
+    arbitrarily. rater_name is stored just for display ("Jane says...")
+    so we don't have to expose the rater's Telegram ID publicly.
     """
     with get_connection() as conn:
         match = conn.execute(
@@ -369,15 +394,32 @@ def rate_entrepreneur_by_id(entrepreneur_id: int, rater_telegram_id: int, score:
 
         if existing:
             conn.execute(
-                "UPDATE ratings SET score = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (score, existing["id"])
+                "UPDATE ratings SET score = ?, comment = ?, rater_name = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (score, comment, rater_name, existing["id"])
             )
         else:
             conn.execute(
-                "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score) VALUES (?, ?, ?)",
-                (entrepreneur_id, rater_telegram_id, score)
+                "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score, comment, rater_name) VALUES (?, ?, ?, ?, ?)",
+                (entrepreneur_id, rater_telegram_id, score, comment, rater_name)
             )
         return True
+
+
+def get_reviews(entrepreneur_id: int, limit: int = 20):
+    """
+    Returns individual ratings/comments for one entrepreneur, most recent
+    first — this is what powers a review list under their profile, as
+    opposed to just the single averaged number.
+    """
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT score, comment, rater_name, created_at
+            FROM ratings
+            WHERE entrepreneur_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (entrepreneur_id, limit)).fetchall()
+        return [dict(row) for row in rows]
 
 
 def rate_entrepreneur(name: str, rater_telegram_id: int, score: int):
@@ -453,69 +495,6 @@ def get_phone_verification(telegram_id: int):
             "SELECT phone, verified_at FROM phone_verifications WHERE telegram_id = ?", (telegram_id,)
         ).fetchone()
         return dict(row) if row else None
-
-
-def request_verification(telegram_id: int):
-    """
-    An entrepreneur asks to be reviewed for the manual 'Verified' badge.
-    This is opt-in and pre-filtered on the caller side (server.py only
-    allows this if phone is already verified and a photo exists) — the
-    point is admins only ever look at a small, self-selected queue of
-    people who actually want the badge, not every registered entrepreneur.
-    """
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO verification_requests (telegram_id, status) VALUES (?, 'pending')",
-            (telegram_id,)
-        )
-
-
-def get_verification_queue():
-    """Pending verification requests, enriched with what an admin needs to make a quick call."""
-    with get_connection() as conn:
-        rows = conn.execute("""
-            SELECT
-                e.telegram_id, e.id, e.name, e.phone, e.phone_verified, e.business_address,
-                e.photo_file_id, e.photo_base64, vr.requested_at
-            FROM verification_requests vr
-            JOIN entrepreneurs e ON e.telegram_id = vr.telegram_id
-            WHERE vr.status = 'pending'
-            ORDER BY vr.requested_at ASC
-        """).fetchall()
-        return [dict(row) for row in rows]
-
-
-def resolve_verification_request(entrepreneur_telegram_id: int, approve: bool):
-    """Admin approves or rejects a pending request — updates both the queue and the live badge."""
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE verification_requests SET status = ? WHERE telegram_id = ?",
-            ("approved" if approve else "rejected", entrepreneur_telegram_id)
-        )
-        conn.execute(
-            "UPDATE entrepreneurs SET identity_verified = ?, verified_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE verified_at END WHERE telegram_id = ?",
-            (1 if approve else 0, approve, entrepreneur_telegram_id)
-        )
-
-
-def set_identity_verified_by_name(name: str, verified: bool):
-    """
-    Admin-only manual verification badge — there's no automated way to
-    confirm someone actually lives/works at a claimed address without a
-    paid ID-verification service, so this is a deliberate manual step:
-    an admin does their own diligence, then flips this flag.
-    """
-    with get_connection() as conn:
-        match = conn.execute(
-            "SELECT telegram_id FROM entrepreneurs WHERE name LIKE ?", (f"%{name.strip()}%",)
-        ).fetchone()
-        if not match:
-            return False, None
-        conn.execute(
-            "UPDATE entrepreneurs SET identity_verified = ?, verified_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE verified_at END WHERE telegram_id = ?",
-            (1 if verified else 0, verified, match["telegram_id"])
-        )
-        return True, match["telegram_id"]
 
 
 def get_stats():
@@ -639,7 +618,7 @@ def get_public_profile(entrepreneur_id: int):
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id, name, socials, phone, email, business_address, website,
-                   photo_file_id, photo_base64, created_at, phone_verified, identity_verified
+                   photo_file_id, photo_base64, created_at, phone_verified
             FROM entrepreneurs WHERE id = ?
         """, (entrepreneur_id,)).fetchone()
         if not row:

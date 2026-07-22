@@ -279,13 +279,23 @@ def api_rate():
 
     entrepreneur_id = body.get("entrepreneur_id")
     score = body.get("score")
+    comment = (body.get("comment") or "").strip()[:500]  # cap length, this isn't an essay field
     if not isinstance(entrepreneur_id, int) or not isinstance(score, int) or not (1 <= score <= 5):
         return jsonify({"error": "invalid_input"}), 400
 
-    success = db.rate_entrepreneur_by_id(entrepreneur_id, user["id"], score)
+    rater_name = user.get("first_name", "Anonymous")
+    success = db.rate_entrepreneur_by_id(entrepreneur_id, user["id"], score, comment, rater_name)
     if not success:
         return jsonify({"error": "not_found"}), 404
     return jsonify({"status": "ok"})
+
+
+@flask_app.route("/api/reviews/<int:entrepreneur_id>")
+def api_reviews(entrepreneur_id):
+    bot_token = bot_module.load_token()
+    if not validate_init_data(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "invalid_init_data"}), 401
+    return jsonify(db.get_reviews(entrepreneur_id))
 
 
 @flask_app.route("/api/unregister", methods=["POST"])
@@ -426,74 +436,6 @@ def api_check_phone():
 
     verification = db.get_phone_verification(user["id"])
     return jsonify({"verified": bool(verification), "phone": verification["phone"] if verification else None})
-
-
-@flask_app.route("/api/request_verification", methods=["POST"])
-def api_request_verification():
-    """
-    Lets an entrepreneur ask to be reviewed for the manual 'Verified'
-    badge — but only if they've already cleared automated checks (phone
-    verified + photo present). This is the mechanism that keeps admin
-    review from becoming 'sift through 1000 people': only people who
-    both want the badge AND already passed the cheap automated checks
-    ever land in front of an admin.
-    """
-    bot_token = bot_module.load_token()
-    body = request.get_json(force=True, silent=True) or {}
-    user = validate_init_data(body.get("initData", ""), bot_token)
-    if not user:
-        return jsonify({"error": "invalid_init_data"}), 401
-
-    profile = db.get_entrepreneur_profile(user["id"])
-    if not profile:
-        return jsonify({"error": "not_registered"}), 400
-    if not profile["phone_verified"]:
-        return jsonify({"error": "phone_not_verified"}), 400
-    if not (profile["photo_file_id"] or profile["photo_base64"]):
-        return jsonify({"error": "no_photo"}), 400
-
-    db.request_verification(user["id"])
-    return jsonify({"status": "ok"})
-
-
-@flask_app.route("/api/admin/verification_queue")
-def api_admin_verification_queue():
-    bot_token = bot_module.load_token()
-    if not require_admin(request.args.get("initData", ""), bot_token):
-        return jsonify({"error": "forbidden"}), 403
-    return jsonify(db.get_verification_queue())
-
-
-@flask_app.route("/api/admin/resolve_verification", methods=["POST"])
-def api_admin_resolve_verification():
-    bot_token = bot_module.load_token()
-    body = request.get_json(force=True, silent=True) or {}
-    if not require_admin(body.get("initData", ""), bot_token):
-        return jsonify({"error": "forbidden"}), 403
-
-    telegram_id = body.get("telegram_id")
-    approve = bool(body.get("approve"))
-    if not isinstance(telegram_id, int):
-        return jsonify({"error": "invalid_telegram_id"}), 400
-
-    db.resolve_verification_request(telegram_id, approve)
-    return jsonify({"status": "ok"})
-
-
-@flask_app.route("/api/admin/verify", methods=["POST"])
-def api_admin_verify():
-    bot_token = bot_module.load_token()
-    body = request.get_json(force=True, silent=True) or {}
-    if not require_admin(body.get("initData", ""), bot_token):
-        return jsonify({"error": "forbidden"}), 403
-
-    name = (body.get("name") or "").strip()
-    verified = bool(body.get("verified", True))
-    if not name:
-        return jsonify({"error": "missing_name"}), 400
-
-    success, telegram_id = db.set_identity_verified_by_name(name, verified)
-    return jsonify({"status": "ok", "found": success})
 
 
 @flask_app.route("/api/admin/forceremove", methods=["POST"])

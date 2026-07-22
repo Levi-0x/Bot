@@ -1,5 +1,5 @@
 /*
-  app.js — VentureVault Mini App
+  app.js — GrowthHub Mini App
   --------------------------------
   Drives the whole single-page app: Home, Explore, Profile, and the
   5-step Register/Edit flow (grouping the 8 requested fields into
@@ -93,12 +93,11 @@ function renderResultCard(r) {
   const ratingText = r.avg_rating ? `⭐ ${r.avg_rating} (${r.rating_count} ratings)` : "No ratings yet";
   const serviceLabel = r.service || (r.services && r.services[0]) || "";
   const contactParts = [r.phone, r.socials].filter(Boolean).join(" · ");
-  const verifiedBadge = r.identity_verified ? ` ${checkCircleHtml("Manually verified by an admin")}` : "";
   return `
     <div class="result-card" data-open-id="${r.id}">
       ${avatarHtml(r)}
       <div class="result-info">
-        <h3>${escapeHtml(r.name)}${verifiedBadge}</h3>
+        <h3>${escapeHtml(r.name)}</h3>
         <p class="result-service">${escapeHtml(serviceLabel)}</p>
         <p class="result-rating">${ratingText}</p>
         <p class="result-contact">${escapeHtml(contactParts)}</p>
@@ -257,7 +256,6 @@ async function loadProfile() {
       <div class="detail-row"><span class="label">Home address<span class="private-badge">Private</span></span><span class="value">${escapeHtml(profile.home_address) || "—"}</span></div>
     </div>
     <div class="menu-list">
-      ${verificationMenuItem(profile)}
       <div class="menu-item" id="editListingBtn">Edit My Listing<span class="chevron">›</span></div>
       <div class="menu-item danger" id="removeListingBtn">Remove My Listing<span class="chevron">›</span></div>
     </div>`;
@@ -271,36 +269,6 @@ async function loadProfile() {
       loadProfile();
     });
   });
-
-  const requestBtn = document.getElementById("requestVerificationBtn");
-  if (requestBtn) {
-    requestBtn.addEventListener("click", async () => {
-      const { ok, data } = await apiPost("/api/request_verification", { initData: tg.initData });
-      if (ok) {
-        tg.showAlert("Request sent — an admin will review it soon.");
-        loadProfile();
-      } else if (data?.error === "phone_not_verified") {
-        tg.showAlert("Verify your phone first (edit your listing, Step 1).");
-      } else if (data?.error === "no_photo") {
-        tg.showAlert("Add a profile photo first (edit your listing, Step 4).");
-      } else {
-        tg.showAlert("Something went wrong. Please try again.");
-      }
-    });
-  }
-}
-
-// Eligibility gate lives here too, mirroring the backend: only entrepreneurs
-// who've already verified their phone and uploaded a photo can even see the
-// button — everyone else sees why they're not eligible yet instead.
-function verificationMenuItem(profile) {
-  if (profile.identity_verified) {
-    return `<div class="menu-item">Verified listing ${checkCircleHtml("Verified")}</div>`;
-  }
-  if (!profile.phone_verified || !(profile.photo_file_id || profile.photo_base64)) {
-    return `<div class="menu-item" style="color:var(--text-muted);">Request Verification (verify phone + add photo first)</div>`;
-  }
-  return `<div class="menu-item" id="requestVerificationBtn">Request Verification Badge<span class="chevron">›</span></div>`;
 }
 
 // ============================================================
@@ -327,14 +295,25 @@ async function openDetail(entrepreneurId) {
     return;
   }
   const profile = await res.json();
+  const reviews = await apiGet(`/api/reviews/${entrepreneurId}`);
   const ratingText = profile.avg_rating ? `⭐ ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
-  const verifiedBadge = profile.identity_verified ? ` ${checkCircleHtml("Manually verified by an admin")}` : "";
   const phoneVerifiedBadge = profile.phone_verified ? ` ${checkCircleHtml("Confirmed via Telegram")}` : "";
+
+  const reviewsHtml = reviews.length
+    ? reviews.map((rev) => `
+        <div class="review-card">
+          <div class="review-head">
+            <b>${escapeHtml(rev.rater_name || "Anonymous")}</b>
+            <span class="review-stars">${"★".repeat(rev.score)}${"☆".repeat(5 - rev.score)}</span>
+          </div>
+          ${rev.comment ? `<p class="review-comment">${escapeHtml(rev.comment)}</p>` : ""}
+        </div>`).join("")
+    : `<p class="field-hint">No reviews yet — be the first to rate ${escapeHtml(profile.name)}.</p>`;
 
   container.innerHTML = `
     <div class="profile-header-card">
       ${avatarHtml(profile, 68)}
-      <h2>${escapeHtml(profile.name)}${verifiedBadge}</h2>
+      <h2>${escapeHtml(profile.name)}</h2>
       <p class="tagline">${escapeHtml(profile.services.join(", ")) || ""}</p>
       <p class="rating-line">${ratingText}</p>
     </div>
@@ -345,7 +324,10 @@ async function openDetail(entrepreneurId) {
       <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
       <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "—"}</span></div>
     </div>
-    <button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>`;
+    <button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>
+
+    <div class="section-head" style="margin-top:22px;"><h2>Reviews</h2></div>
+    <div class="reviews-list">${reviewsHtml}</div>`;
 
   document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
 }
@@ -355,28 +337,42 @@ async function openDetail(entrepreneurId) {
 // need 5 (one per star) plus Cancel — that's exactly why the old version
 // silently did nothing. A plain in-page modal has no such limit.
 function openRatingModal(entrepreneurId, name) {
+  let selectedScore = 0;
+
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal-card">
       <h3>Rate ${escapeHtml(name)}</h3>
-      <p class="field-hint">Tap a star to submit your rating.</p>
+      <p class="field-hint">Tap a star, then add a comment if you'd like.</p>
       <div class="star-row">
         ${[1, 2, 3, 4, 5].map((n) => `<button class="star-btn" data-score="${n}">★</button>`).join("")}
       </div>
+      <textarea id="ratingComment" rows="3" placeholder="Optional — share what your experience was like"></textarea>
+      <button class="btn-primary" id="ratingSubmitBtn">Submit Rating</button>
       <button class="btn-secondary" id="ratingCancelBtn">Cancel</button>
     </div>`;
   document.body.appendChild(overlay);
 
-  overlay.querySelectorAll(".star-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const score = Number(btn.dataset.score);
-      overlay.remove();
-      const { ok } = await apiPost("/api/rate", { initData: tg.initData, entrepreneur_id: entrepreneurId, score });
-      tg.showAlert ? tg.showAlert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.")
-                   : alert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.");
-      if (ok) openDetail(entrepreneurId);
+  const starButtons = overlay.querySelectorAll(".star-btn");
+  starButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedScore = Number(btn.dataset.score);
+      starButtons.forEach((b) => b.classList.toggle("selected", Number(b.dataset.score) <= selectedScore));
     });
+  });
+
+  document.getElementById("ratingSubmitBtn").addEventListener("click", async () => {
+    if (!selectedScore) {
+      tg.showAlert ? tg.showAlert("Please tap a star first.") : alert("Please tap a star first.");
+      return;
+    }
+    const comment = document.getElementById("ratingComment").value.trim();
+    overlay.remove();
+    const { ok } = await apiPost("/api/rate", { initData: tg.initData, entrepreneur_id: entrepreneurId, score: selectedScore, comment });
+    tg.showAlert ? tg.showAlert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.")
+                 : alert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.");
+    if (ok) openDetail(entrepreneurId);
   });
 
   document.getElementById("ratingCancelBtn").addEventListener("click", () => overlay.remove());
@@ -469,7 +465,7 @@ function refreshPhoneVerifiedUI(state) {
   } else if (state === "waiting") {
     hint.textContent = "";
   } else {
-    hint.textContent = "Tap the button, then approve the \"Share your phone number?\" prompt Telegram shows you. That's the only tap needed — the app then checks automatically until it's confirmed. You can't continue to the next step until this is done, so listings can't use fake numbers.";
+    hint.textContent = "Tap the button and approve the prompt Telegram shows you. That's it — no other steps needed.";
   }
 }
 
@@ -713,7 +709,6 @@ async function loadAdminPanel() {
     <div class="stat-card"><b>${stats.ratings}</b><span>Ratings</span></div>`;
 
   await refreshAdminList();
-  await loadVerificationQueue();
 }
 
 async function refreshAdminList() {
@@ -739,42 +734,6 @@ document.getElementById("adminBroadcastBtn").addEventListener("click", () => {
   });
 });
 
-async function loadVerificationQueue() {
-  const res = await fetch(`/api/admin/verification_queue?initData=${encodeURIComponent(tg.initData)}`);
-  const queue = await res.json();
-  const container = document.getElementById("verificationQueue");
-
-  if (!res.ok || !queue.length) {
-    container.innerHTML = `<p class="field-hint">No pending requests right now.</p>`;
-    return;
-  }
-
-  container.innerHTML = queue.map((r) => `
-    <div class="admin-card">
-      <div style="display:flex; gap:10px; align-items:center;">
-        ${avatarHtml(r, 40)}
-        <div>
-          <b>${escapeHtml(r.name)}</b>
-          <p class="field-hint" style="margin:2px 0 0;">${escapeHtml(r.phone)} · requested ${r.requested_at?.slice(0, 10)}</p>
-        </div>
-      </div>
-      <button class="btn-primary" data-approve="${r.telegram_id}">✅ Approve</button>
-      <button class="btn-secondary danger-text" data-reject="${r.telegram_id}">Reject</button>
-    </div>`).join("");
-
-  container.querySelectorAll("[data-approve]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      await apiPost("/api/admin/resolve_verification", { initData: tg.initData, telegram_id: Number(btn.dataset.approve), approve: true });
-      loadVerificationQueue();
-    });
-  });
-  container.querySelectorAll("[data-reject]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      await apiPost("/api/admin/resolve_verification", { initData: tg.initData, telegram_id: Number(btn.dataset.reject), approve: false });
-      loadVerificationQueue();
-    });
-  });
-}
 
 document.getElementById("addAdminBtn").addEventListener("click", async () => {
   const id = Number(document.getElementById("adminIdInput").value.trim());

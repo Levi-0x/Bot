@@ -283,7 +283,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 }
 .modal-card {
   background: var(--surface); border-radius: var(--radius-lg); padding: 24px 20px;
-  width: 100%; max-width: 320px; text-align: center; box-shadow: var(--shadow);
+  width: 100%; max-width: 340px; text-align: center; box-shadow: var(--shadow);
 }
 .modal-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
 .star-row { display: flex; justify-content: center; gap: 8px; margin: 18px 0; }
@@ -291,7 +291,20 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   border: none; background: var(--secondary-soft); color: var(--secondary);
   width: 44px; height: 44px; border-radius: 50%; font-size: 20px; cursor: pointer;
 }
+.star-btn.selected { background: var(--accent); color: white; }
 .star-btn:active { background: var(--secondary); color: white; }
+.modal-card textarea {
+  width: 100%; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; font-size: 13.5px; font-family: inherit; resize: vertical;
+  color: var(--input-text); background: #FFFFFF; margin-bottom: 12px; text-align: left;
+}
+
+.reviews-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.review-card { background: var(--surface); border-radius: var(--radius-md); box-shadow: var(--shadow); padding: 12px 14px; }
+.review-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.review-head b { font-size: 13.5px; }
+.review-stars { color: var(--accent); font-size: 13px; letter-spacing: 1px; }
+.review-comment { font-size: 13px; color: var(--text-muted); margin: 0; line-height: 1.4; }
 
 /* ---------- Admin panel ---------- */
 .stat-card-row { display: flex; gap: 10px; margin-bottom: 22px; }
