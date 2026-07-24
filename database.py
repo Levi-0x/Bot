@@ -89,7 +89,16 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS services (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL COLLATE NOCASE
+                name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                category TEXT DEFAULT 'service'
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                icon TEXT DEFAULT '',
+                color TEXT DEFAULT ''
             )
         """)
         conn.execute("""
@@ -162,6 +171,33 @@ def init_db():
             if column not in existing_rating_columns:
                 conn.execute(f"ALTER TABLE ratings ADD COLUMN {column} {col_type}")
 
+        # Migration: add social_platforms column for structured social media data
+        existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(entrepreneurs)")}
+        if "social_platforms" not in existing_columns:
+            conn.execute("ALTER TABLE entrepreneurs ADD COLUMN social_platforms TEXT DEFAULT '[]'")
+
+        # Migration: add category column to services table
+        existing_service_columns = {row["name"] for row in conn.execute("PRAGMA table_info(services)")}
+        if "category" not in existing_service_columns:
+            conn.execute("ALTER TABLE services ADD COLUMN category TEXT DEFAULT 'service'")
+
+        # Seed default categories if empty
+        cat_count = conn.execute("SELECT COUNT(*) AS c FROM categories").fetchone()["c"]
+        if cat_count == 0:
+            default_categories = [
+                ("home services", "🏠", "#0F9B8E"),
+                ("digital services", "💻", "#4A6FA5"),
+                ("creative", "🎨", "#FCA311"),
+                ("health & wellness", "💚", "#2ECC71"),
+                ("education", "📚", "#9B59B6"),
+                ("food & catering", "🍽", "#E74C3C"),
+                ("transport", "🚗", "#3498DB"),
+                ("fashion & beauty", "👗", "#E91E63"),
+                ("repair & maintenance", "🔧", "#F39C12"),
+                ("other", "📦", "#95A5A6"),
+            ]
+            conn.executemany("INSERT OR IGNORE INTO categories (name, icon, color) VALUES (?, ?, ?)", default_categories)
+
 
 # ---------- Entrepreneur registration ----------
 
@@ -180,7 +216,8 @@ def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[st
     """
     allowed_columns = {
         "name", "socials", "phone", "email", "photo_file_id", "photo_base64",
-        "business_address", "website", "home_address", "phone_verified"
+        "business_address", "website", "home_address", "phone_verified",
+        "social_platforms"
     }
     fields = {k: v for k, v in fields.items() if k in allowed_columns}
 
@@ -251,6 +288,7 @@ def get_top_entrepreneurs(limit: int = 5):
                 e.id,
                 e.name,
                 e.socials,
+                e.social_platforms,
                 e.phone,
                 e.email,
                 e.business_address,
@@ -282,37 +320,59 @@ def get_top_entrepreneurs(limit: int = 5):
 def get_all_services():
     """
     Returns every distinct service name currently registered, with how
-    many entrepreneurs offer each one. Powers the browsable /services menu.
+    many entrepreneurs offer each one and its category.
     """
     with get_connection() as conn:
         rows = conn.execute("""
-            SELECT s.name, COUNT(es.entrepreneur_id) AS entrepreneur_count
+            SELECT s.name, s.category, COUNT(es.entrepreneur_id) AS entrepreneur_count
             FROM services s
             JOIN entrepreneur_services es ON es.service_id = s.id
             GROUP BY s.name
-            ORDER BY s.name ASC
+            ORDER BY s.category ASC, s.name ASC
         """).fetchall()
         return [dict(row) for row in rows]
 
 
-def find_by_service(query: str):
+def get_categories():
+    """Returns all service categories with their icons and colors."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT * FROM categories ORDER BY name ASC").fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_services_by_category(category: str):
+    """Returns all services in a specific category with entrepreneur counts."""
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT s.name, s.category, COUNT(es.entrepreneur_id) AS entrepreneur_count
+            FROM services s
+            JOIN entrepreneur_services es ON es.service_id = s.id
+            WHERE s.category = ?
+            GROUP BY s.name
+            ORDER BY s.name ASC
+        """, (category,)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def find_by_service(query: str, category: str = "", service_type: str = ""):
     """
     Searches entrepreneurs by service (with stemming, e.g. "teacher" finds
     "teaching"), OR by their name, OR by their business address — whichever
-    matches. This is deliberately one combined search rather than three
-    separate ones, since from the user's side it's just "search" — they
-    shouldn't need to know which field they're matching against.
+    matches. Optionally filters by category (e.g. "home services") or
+    service_type ("service" or "product").
     """
     query_stem = _stem(query)
     query_lower = query.strip().lower()
 
     with get_connection() as conn:
-        all_services = [row["name"] for row in conn.execute("SELECT name FROM services").fetchall()]
+        all_services = [dict(row) for row in conn.execute("SELECT name, category FROM services").fetchall()]
         matching_services = [
-            name for name in all_services
-            if query_lower in name.lower()
-            or query_stem in _stem(name)
-            or _stem(name) in query_stem
+            s["name"] for s in all_services
+            if (query_lower in s["name"].lower()
+                or query_stem in _stem(s["name"])
+                or _stem(s["name"]) in query_stem)
+            and (not category or s.get("category", "service") == category)
+            and (not service_type or s.get("category", "service") == service_type)
         ]
 
         matching_ids = set()
@@ -340,6 +400,7 @@ def find_by_service(query: str):
                 e.id,
                 e.name,
                 e.socials,
+                e.social_platforms,
                 e.phone,
                 e.email,
                 e.business_address,
@@ -617,7 +678,7 @@ def get_public_profile(entrepreneur_id: int):
     """
     with get_connection() as conn:
         row = conn.execute("""
-            SELECT id, name, socials, phone, email, business_address, website,
+            SELECT id, name, socials, social_platforms, phone, email, business_address, website,
                    photo_file_id, photo_base64, created_at, phone_verified
             FROM entrepreneurs WHERE id = ?
         """, (entrepreneur_id,)).fetchone()

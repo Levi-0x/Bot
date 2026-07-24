@@ -336,3 +336,96 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .nav-btn svg { width: 22px; height: 22px; }
 .nav-btn span { font-size: 10.5px; font-weight: 600; }
 .nav-btn.active { color: var(--secondary); }
+
+/* ---------- Home search bar ---------- */
+.home-search-bar { cursor: default; position: relative; }
+.search-clear-btn {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  border: none; background: var(--border); color: var(--text-muted);
+  width: 22px; height: 22px; border-radius: 50%; font-size: 14px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  line-height: 1; padding: 0;
+}
+
+/* ---------- Category type tabs (Services / Products) ---------- */
+.category-type-tabs {
+  display: flex; gap: 8px; margin-bottom: 14px;
+}
+.type-tab {
+  flex: 1; padding: 10px 0; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-muted); font-size: 13px; font-weight: 700;
+  cursor: pointer; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.type-tab.active {
+  background: var(--primary); border-color: var(--primary); color: white;
+}
+
+/* ---------- Category chip grid (horizontal scrollable) ---------- */
+.category-chip-grid {
+  display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 20px;
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.category-chip-grid::-webkit-scrollbar { display: none; }
+.category-chip {
+  display: flex; align-items: center; gap: 8px; background: var(--surface);
+  border-radius: var(--radius-md); box-shadow: var(--shadow); padding: 10px 14px;
+  border: none; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.category-chip-icon {
+  width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center;
+  justify-content: center; font-size: 14px; color: white;
+}
+.category-chip span:last-child {
+  font-size: 12.5px; font-weight: 600; color: var(--text); text-transform: capitalize;
+}
+
+/* ---------- Social media platforms form ---------- */
+.social-platforms-section {
+  margin-bottom: 18px;
+}
+.field-label {
+  display: block; font-size: 12.5px; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;
+}
+.social-platforms-list {
+  display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px;
+}
+.social-platform-row {
+  display: flex; gap: 8px; align-items: center; background: #FFFFFF;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px;
+}
+.social-platform-select-wrap { flex-shrink: 0; }
+.social-platform-select {
+  border: none; background: var(--secondary-soft); color: var(--secondary);
+  border-radius: 8px; padding: 8px 10px; font-size: 12.5px; font-weight: 600;
+  font-family: inherit; cursor: pointer; min-width: 110px;
+  appearance: auto; -webkit-appearance: auto;
+}
+.social-platform-handle {
+  flex: 1; border: none; outline: none; font-size: 13.5px; padding: 6px 4px;
+  font-family: inherit; color: var(--input-text) !important;
+  -webkit-text-fill-color: var(--input-text); background: transparent;
+}
+.social-platform-handle::placeholder {
+  color: var(--text-muted); -webkit-text-fill-color: var(--text-muted);
+}
+.social-platform-remove {
+  border: none; background: none; color: var(--danger); font-size: 20px;
+  cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0;
+}
+.btn-add-platform {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1.5px dashed var(--border); border-radius: var(--radius-sm);
+  padding: 10px; background: transparent; color: var(--secondary);
+  font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer;
+  width: 100%;
+}
+.btn-add-platform:active { background: var(--secondary-soft); }
+
+/* ---------- Social platforms display (profile/detail) ---------- */
+.social-display-section { margin-bottom: 16px; }
+.social-tags-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+.social-tag {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px;
+  border-radius: 999px; font-size: 12.5px; font-weight: 600;
+}
+.social-tag-icon { font-size: 13px; }

@@ -30,6 +30,57 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function renderSocialPlatformsDisplay(profile) {
+  let platforms = [];
+  if (profile.social_platforms) {
+    try {
+      const parsed = typeof profile.social_platforms === "string"
+        ? JSON.parse(profile.social_platforms)
+        : profile.social_platforms;
+      if (Array.isArray(parsed)) platforms = parsed;
+    } catch(e) { /* ignore */ }
+  }
+  // Backwards compat: show old socials field as a tag
+  if (!platforms.length && profile.socials) {
+    platforms = [{ platform: "other", handle: profile.socials }];
+  }
+  if (!platforms.length) return "";
+
+  const platDefs = {
+    instagram: { icon: "📸", label: "Instagram", color: "#E4405F" },
+    twitter: { icon: "𝕏", label: "X", color: "#1DA1F2" },
+    facebook: { icon: "📘", label: "Facebook", color: "#1877F2" },
+    linkedin: { icon: "💼", label: "LinkedIn", color: "#0A66C2" },
+    tiktok: { icon: "🎵", label: "TikTok", color: "#010101" },
+    youtube: { icon: "▶️", label: "YouTube", color: "#FF0000" },
+    whatsapp: { icon: "💬", label: "WhatsApp", color: "#25D366" },
+    telegram: { icon: "✈️", label: "Telegram", color: "#0088CC" },
+    snapchat: { icon: "👻", label: "Snapchat", color: "#FFFC00" },
+    pinterest: { icon: "📌", label: "Pinterest", color: "#BD081C" },
+    website: { icon: "🌐", label: "Web", color: "#6B7280" },
+    other: { icon: "🔗", label: "", color: "#6B7280" },
+  };
+
+  const tagsHtml = platforms.map(sp => {
+    const def = platDefs[sp.platform] || platDefs.other;
+    const displayHandle = sp.handle || "";
+    return `<span class="social-tag" style="background:${def.color}20;color:${def.color};border:1px solid ${def.color}40;">
+      <span class="social-tag-icon">${def.icon}</span>
+      <span>${escapeHtml(displayHandle)}</span>
+    </span>`;
+  }).join("");
+
+  return `
+    <div class="social-display-section">
+      <div class="section-head"><h2>Social Media</h2></div>
+      <div class="social-tags-wrap">${tagsHtml}</div>
+    </div>`;
+}
+
+function renderSocialPlatformsDisplayPublic(profile) {
+  return renderSocialPlatformsDisplay(profile);
+}
+
 function checkCircleHtml(title) {
   return `<span class="check-circle" title="${escapeHtml(title)}"><svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="white" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
 }
@@ -89,6 +140,9 @@ document.querySelectorAll("[data-goto]").forEach((el) => el.addEventListener("cl
 // ============================================================
 // HOME
 // ============================================================
+let homeAllServices = [];
+let homeActiveType = "all";
+
 function renderResultCard(r) {
   const ratingText = r.avg_rating ? `⭐ ${r.avg_rating} (${r.rating_count} ratings)` : "No ratings yet";
   const serviceLabel = r.service || (r.services && r.services[0]) || "";
@@ -127,20 +181,44 @@ async function loadHome() {
   document.getElementById("homeUserName").textContent = user?.first_name || "there";
   document.getElementById("homeAvatar").textContent = initials(user?.first_name || "?");
 
-  const [services, top] = await Promise.all([apiGet("/api/services"), apiGet("/api/top?limit=5")]);
+  const [services, top, categories] = await Promise.all([
+    apiGet("/api/services"),
+    apiGet("/api/top?limit=5"),
+    apiGet("/api/categories"),
+  ]);
 
-  const catContainer = document.getElementById("homeCategories");
-  const topServices = services.slice(0, 8);
-  catContainer.innerHTML = topServices
-    .map(
-      (s) => `
+  homeAllServices = services;
+
+  // Render category tiles (filtered by type)
+  renderHomeCategories(services);
+
+  // Render category chip tiles
+  renderHomeCategoryChips(categories);
+
+  document.getElementById("homeTop").innerHTML = top.length
+    ? top.map(renderResultCard).join("")
+    : emptyState("No entrepreneurs listed yet.");
+  wireResultCardClicks(document.getElementById("homeTop"));
+
+  // Setup type tabs
+  setupHomeTypeTabs();
+}
+
+function renderHomeCategories(services) {
+  const container = document.getElementById("homeCategories");
+  const filtered = homeActiveType === "all"
+    ? services.slice(0, 8)
+    : services.filter(s => (s.category || "service") === homeActiveType).slice(0, 8);
+
+  container.innerHTML = filtered.length
+    ? filtered.map(s => `
       <button class="category-tile" data-service="${escapeHtml(s.name)}">
         <span class="cat-icon" style="background:${colorForName(s.name)}">${s.name[0].toUpperCase()}</span>
         <span>${escapeHtml(s.name)}</span>
-      </button>`
-    )
-    .join("");
-  catContainer.querySelectorAll(".category-tile").forEach((tile) => {
+      </button>`).join("")
+    : emptyState("No services in this category yet.");
+
+  container.querySelectorAll(".category-tile").forEach(tile => {
     tile.addEventListener("click", () => {
       showView("explore");
       const q = tile.dataset.service;
@@ -150,36 +228,124 @@ async function loadHome() {
       }, 0);
     });
   });
+}
 
-  document.getElementById("homeTop").innerHTML = top.length
-    ? top.map(renderResultCard).join("")
-    : emptyState("No entrepreneurs listed yet.");
-  wireResultCardClicks(document.getElementById("homeTop"));
+function renderHomeCategoryChips(categories) {
+  const container = document.getElementById("homeCategoryTiles");
+  container.innerHTML = categories.slice(0, 10).map(c => `
+    <button class="category-chip" data-category="${escapeHtml(c.name)}">
+      <span class="category-chip-icon" style="background:${escapeHtml(c.color)}">${escapeHtml(c.icon)}</span>
+      <span>${escapeHtml(c.name)}</span>
+    </button>`).join("");
+
+  container.querySelectorAll(".category-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      showView("explore");
+      setTimeout(() => {
+        const catName = chip.dataset.category;
+        // Filter explore chips to this category
+        document.getElementById("searchInput").value = catName;
+        runSearch(catName);
+      }, 0);
+    });
+  });
+}
+
+function setupHomeTypeTabs() {
+  document.querySelectorAll("#view-home .type-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll("#view-home .type-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      homeActiveType = tab.dataset.type;
+      renderHomeCategories(homeAllServices);
+    });
+  });
+}
+
+// Home search functionality
+let homeSearchTimer = null;
+const homeSearchInput = document.getElementById("homeSearchInput");
+const homeSearchResults = document.getElementById("homeSearchResults");
+const homeDefaultContent = document.getElementById("homeDefaultContent");
+const homeSearchClear = document.getElementById("homeSearchClear");
+
+if (homeSearchInput) {
+  homeSearchInput.addEventListener("input", (e) => {
+    const q = e.target.value.trim();
+    homeSearchClear.style.display = q ? "block" : "none";
+
+    if (homeSearchTimer) clearTimeout(homeSearchTimer);
+    if (q.length > 1) {
+      homeSearchTimer = setTimeout(async () => {
+        homeDefaultContent.style.display = "none";
+        homeSearchResults.style.display = "flex";
+        const results = await apiGet(`/api/find?service=${encodeURIComponent(q)}`);
+        homeSearchResults.innerHTML = results.length
+          ? results.map(renderResultCard).join("")
+          : emptyState(`No results for "${escapeHtml(q)}". Try another search.`);
+        wireResultCardClicks(homeSearchResults);
+      }, 300);
+    } else {
+      homeDefaultContent.style.display = "block";
+      homeSearchResults.style.display = "none";
+    }
+  });
+
+  homeSearchClear.addEventListener("click", () => {
+    homeSearchInput.value = "";
+    homeSearchClear.style.display = "none";
+    homeDefaultContent.style.display = "block";
+    homeSearchResults.style.display = "none";
+  });
 }
 
 // ============================================================
 // EXPLORE
 // ============================================================
 let exploreServicesCache = [];
+let exploreActiveType = "all";
 
 async function loadExplore() {
   if (!exploreServicesCache.length) {
     exploreServicesCache = await apiGet("/api/services");
-    const chipContainer = document.getElementById("exploreChips");
-    chipContainer.innerHTML =
-      `<button class="chip active" data-chip="all">All</button>` +
-      exploreServicesCache.slice(0, 10).map((s) => `<button class="chip" data-chip="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`).join("");
-
-    chipContainer.querySelectorAll(".chip").forEach((chip) => {
-      chip.addEventListener("click", () => {
-        chipContainer.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
-        chip.classList.add("active");
-        const value = chip.dataset.chip === "all" ? "" : chip.dataset.chip;
-        document.getElementById("searchInput").value = value;
-        runSearch(value);
-      });
-    });
   }
+  renderExploreChips();
+  setupExploreTypeTabs();
+}
+
+function renderExploreChips() {
+  const chipContainer = document.getElementById("exploreChips");
+  const filtered = exploreActiveType === "all"
+    ? exploreServicesCache
+    : exploreServicesCache.filter(s => (s.category || "service") === exploreActiveType);
+
+  chipContainer.innerHTML =
+    `<button class="chip active" data-chip="all">All</button>` +
+    filtered.slice(0, 10).map((s) => `<button class="chip" data-chip="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`).join("");
+
+  chipContainer.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      chipContainer.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      const value = chip.dataset.chip === "all" ? "" : chip.dataset.chip;
+      document.getElementById("searchInput").value = value;
+      runSearch(value);
+    });
+  });
+}
+
+function setupExploreTypeTabs() {
+  document.querySelectorAll("#view-explore .type-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll("#view-explore .type-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      exploreActiveType = tab.dataset.type;
+      renderExploreChips();
+      // Re-run search if there's a query
+      const q = document.getElementById("searchInput").value.trim();
+      if (q) runSearch(q);
+    });
+  });
 }
 
 async function runSearch(query) {
@@ -188,7 +354,8 @@ async function runSearch(query) {
     container.innerHTML = "";
     return;
   }
-  const results = await apiGet(`/api/find?service=${encodeURIComponent(query)}`);
+  const typeParam = exploreActiveType !== "all" ? `&type=${exploreActiveType}` : "";
+  const results = await apiGet(`/api/find?service=${encodeURIComponent(query)}${typeParam}`);
   container.innerHTML = results.length
     ? results.map(renderResultCard).join("")
     : emptyState(`We couldn't find anyone for "${escapeHtml(query)}". Try another search.`);
@@ -248,6 +415,7 @@ async function loadProfile() {
         <div class="stat"><b>${memberSince}</b><span>Member Since</span></div>
       </div>
     </div>
+    ${renderSocialPlatformsDisplay(profile)}
     <div class="detail-list">
       <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}${profile.phone_verified ? ` ${checkCircleHtml("Confirmed via Telegram")}` : ""}</span></div>
       <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
@@ -317,10 +485,10 @@ async function openDetail(entrepreneurId) {
       <p class="tagline">${escapeHtml(profile.services.join(", ")) || ""}</p>
       <p class="rating-line">${ratingText}</p>
     </div>
+    ${renderSocialPlatformsDisplay(profile)}
     <div class="detail-list">
       <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}${phoneVerifiedBadge}</span></div>
       <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
-      <div class="detail-row"><span class="label">Socials</span><span class="value">${escapeHtml(profile.socials) || "—"}</span></div>
       <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
       <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "—"}</span></div>
     </div>
@@ -391,6 +559,87 @@ let verifiedPhoneNumber = null;   // set once /api/check_phone confirms verifica
 let phonePollTimer = null;
 const TOTAL_STEPS = 5;
 
+const SOCIAL_PLATFORMS = [
+  { id: "instagram", label: "Instagram", icon: "📸", placeholder: "@username" },
+  { id: "twitter", label: "X (Twitter)", icon: "𝕏", placeholder: "@username" },
+  { id: "facebook", label: "Facebook", icon: "📘", placeholder: "facebook.com/username" },
+  { id: "linkedin", label: "LinkedIn", icon: "💼", placeholder: "linkedin.com/in/username" },
+  { id: "tiktok", label: "TikTok", icon: "🎵", placeholder: "@username" },
+  { id: "youtube", label: "YouTube", icon: "▶️", placeholder: "@channel" },
+  { id: "whatsapp", label: "WhatsApp", icon: "💬", placeholder: "+234..." },
+  { id: "telegram", label: "Telegram", icon: "✈️", placeholder: "@username" },
+  { id: "snapchat", label: "Snapchat", icon: "👻", placeholder: "username" },
+  { id: "pinterest", label: "Pinterest", icon: "📌", placeholder: "pinterest.com/username" },
+  { id: "website", label: "Other Website", icon: "🌐", placeholder: "https://..." },
+];
+
+let socialPlatforms = []; // Array of { platform: "instagram", handle: "@janedoe" }
+
+function renderSocialPlatforms() {
+  const container = document.getElementById("socialPlatformsList");
+  if (!container) return;
+
+  container.innerHTML = socialPlatforms.map((sp, i) => {
+    const platDef = SOCIAL_PLATFORMS.find(p => p.id === sp.platform) || SOCIAL_PLATFORMS[0];
+    return `
+      <div class="social-platform-row" data-index="${i}">
+        <div class="social-platform-select-wrap">
+          <select class="social-platform-select" data-index="${i}">
+            ${SOCIAL_PLATFORMS.map(p =>
+              `<option value="${p.id}" ${p.id === sp.platform ? "selected" : ""}>${p.icon} ${p.label}</option>`
+            ).join("")}
+          </select>
+        </div>
+        <input type="text" class="social-platform-handle" data-index="${i}"
+               placeholder="${escapeHtml(platDef.placeholder)}"
+               value="${escapeHtml(sp.handle)}" />
+        <button type="button" class="social-platform-remove" data-index="${i}">&times;</button>
+      </div>`;
+  }).join("");
+
+  // Bind events
+  container.querySelectorAll(".social-platform-select").forEach(sel => {
+    sel.addEventListener("change", (e) => {
+      const idx = Number(e.target.dataset.index);
+      socialPlatforms[idx].platform = e.target.value;
+      // Update placeholder
+      const platDef = SOCIAL_PLATFORMS.find(p => p.id === e.target.value);
+      const handleInput = container.querySelector(`.social-platform-handle[data-index="${idx}"]`);
+      if (handleInput && platDef) handleInput.placeholder = platDef.placeholder;
+    });
+  });
+
+  container.querySelectorAll(".social-platform-handle").forEach(input => {
+    input.addEventListener("input", (e) => {
+      const idx = Number(e.target.dataset.index);
+      socialPlatforms[idx].handle = e.target.value;
+    });
+  });
+
+  container.querySelectorAll(".social-platform-remove").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const idx = Number(e.target.dataset.index);
+      socialPlatforms.splice(idx, 1);
+      renderSocialPlatforms();
+    });
+  });
+}
+
+function addSocialPlatform() {
+  if (socialPlatforms.length >= 11) {
+    tg.showAlert ? tg.showAlert("You can add up to 11 social accounts.") : alert("You can add up to 11 social accounts.");
+    return;
+  }
+  // Pick the next unused platform, or default to instagram
+  const usedPlatforms = socialPlatforms.map(sp => sp.platform);
+  const nextPlat = SOCIAL_PLATFORMS.find(p => !usedPlatforms.includes(p.id)) || SOCIAL_PLATFORMS[0];
+  socialPlatforms.push({ platform: nextPlat.id, handle: "" });
+  renderSocialPlatforms();
+  // Focus the new handle input
+  const handles = document.querySelectorAll(".social-platform-handle");
+  if (handles.length) handles[handles.length - 1].focus();
+}
+
 function openStepper(existingProfile) {
   currentStep = 1;
   stepperTags = existingProfile ? [...existingProfile.services] : [];
@@ -399,10 +648,25 @@ function openStepper(existingProfile) {
 
   document.getElementById("stepName").value = existingProfile?.name || "";
   document.getElementById("stepEmail").value = existingProfile?.email || "";
-  document.getElementById("stepSocials").value = existingProfile?.socials || "";
   document.getElementById("stepBusinessAddress").value = existingProfile?.business_address || "";
   document.getElementById("stepWebsite").value = existingProfile?.website || "";
   document.getElementById("stepHomeAddress").value = existingProfile?.home_address || "";
+
+  // Load social platforms from existing profile
+  socialPlatforms = [];
+  if (existingProfile?.social_platforms) {
+    try {
+      const parsed = typeof existingProfile.social_platforms === "string"
+        ? JSON.parse(existingProfile.social_platforms)
+        : existingProfile.social_platforms;
+      if (Array.isArray(parsed)) socialPlatforms = parsed;
+    } catch(e) { /* ignore parse errors */ }
+  }
+  // Backwards compat: if no social_platforms but there's old socials text, show it
+  if (!socialPlatforms.length && existingProfile?.socials) {
+    socialPlatforms = [{ platform: "instagram", handle: existingProfile.socials }];
+  }
+  renderSocialPlatforms();
 
   refreshPhoneVerifiedUI();
   checkPhoneVerification(); // in case they verified in an earlier session
@@ -550,6 +814,9 @@ document.getElementById("photoInput").addEventListener("change", (e) => {
   reader.readAsDataURL(file);
 });
 
+// Social platforms: add button
+document.getElementById("addSocialPlatformBtn").addEventListener("click", addSocialPlatform);
+
 function goToStep(step) {
   currentStep = step;
   document.querySelectorAll(".step-panel").forEach((p) => p.classList.remove("active"));
@@ -632,7 +899,7 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
     name: document.getElementById("stepName").value.trim(),
     email: document.getElementById("stepEmail").value.trim(),
     services: stepperTags,
-    socials: document.getElementById("stepSocials").value.trim(),
+    social_platforms: socialPlatforms.filter(sp => sp.handle.trim()),
     business_address: businessAddress,
     website: document.getElementById("stepWebsite").value.trim(),
     home_address: homeAddress,

@@ -126,7 +126,18 @@ def api_services():
     bot_token = bot_module.load_token()
     if not validate_init_data(request.args.get("initData", ""), bot_token):
         return jsonify({"error": "invalid_init_data"}), 401
+    category = request.args.get("category", "")
+    if category:
+        return jsonify(db.get_services_by_category(category))
     return jsonify(db.get_all_services())
+
+
+@flask_app.route("/api/categories")
+def api_categories():
+    bot_token = bot_module.load_token()
+    if not validate_init_data(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "invalid_init_data"}), 401
+    return jsonify(db.get_categories())
 
 
 @flask_app.route("/api/top")
@@ -155,7 +166,9 @@ def api_find():
     if not validate_init_data(request.args.get("initData", ""), bot_token):
         return jsonify({"error": "invalid_init_data"}), 401
     service_query = request.args.get("service", "")
-    return jsonify(db.find_by_service(service_query))
+    category = request.args.get("category", "")
+    service_type = request.args.get("type", "")
+    return jsonify(db.find_by_service(service_query, category=category, service_type=service_type))
 
 
 # ---------- Authenticated API (requires valid Telegram initData) ----------
@@ -219,6 +232,14 @@ def api_register():
         "website": (body.get("website") or "").strip(),
         "home_address": home_address,
     }
+    # Accept structured social platforms data (JSON array)
+    social_platforms = body.get("social_platforms")
+    if social_platforms is not None:
+        import json as _json
+        if isinstance(social_platforms, list):
+            fields["social_platforms"] = _json.dumps(social_platforms)
+        elif isinstance(social_platforms, str):
+            fields["social_platforms"] = social_platforms
     if photo_base64:
         fields["photo_base64"] = photo_base64
 

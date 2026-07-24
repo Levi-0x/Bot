@@ -20,16 +20,29 @@
       <div class="banner-avatar" id="homeAvatar">?</div>
     </header>
 
-    <div class="search-bar" data-goto="explore">
+    <div class="search-bar input-mode home-search-bar">
       <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <span>Search services, names, or areas...</span>
+      <input id="homeSearchInput" type="text" placeholder="Search services, names, or areas..." />
+      <button class="search-clear-btn" id="homeSearchClear" style="display:none;">&times;</button>
     </div>
 
-    <div class="section-head"><h2>Popular Categories</h2></div>
-    <div id="homeCategories" class="category-grid"></div>
+    <div id="homeSearchResults" class="results" style="display:none;"></div>
 
-    <div class="section-head"><h2>Top Entrepreneurs</h2></div>
-    <div id="homeTop" class="results"></div>
+    <div id="homeDefaultContent">
+      <div class="section-head"><h2>Categories</h2></div>
+      <div class="category-type-tabs">
+        <button class="type-tab active" data-type="all">All</button>
+        <button class="type-tab" data-type="service">Services</button>
+        <button class="type-tab" data-type="product">Products</button>
+      </div>
+      <div id="homeCategories" class="category-grid"></div>
+
+      <div class="section-head"><h2>Popular Categories</h2></div>
+      <div id="homeCategoryTiles" class="category-chip-grid"></div>
+
+      <div class="section-head"><h2>Top Entrepreneurs</h2></div>
+      <div id="homeTop" class="results"></div>
+    </div>
   </section>
 
   <!-- ===================== EXPLORE ===================== -->
@@ -39,6 +52,12 @@
     <div class="search-bar input-mode">
       <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <input id="searchInput" type="text" placeholder="Search services, names, or areas..." />
+    </div>
+
+    <div class="category-type-tabs">
+      <button class="type-tab active" data-type="all">All</button>
+      <button class="type-tab" data-type="service">Services</button>
+      <button class="type-tab" data-type="product">Products</button>
     </div>
 
     <div id="exploreChips" class="chips"></div>
@@ -164,9 +183,17 @@
     <!-- Step 3: Contact & online presence -->
     <div class="step-panel" data-step-panel="3">
       <h3 class="step-title">Contact & Online Presence</h3>
-      <label class="field">Social media handle <span class="opt">optional</span>
-        <input type="text" id="stepSocials" placeholder="e.g. IG @janedoe_plumbing" />
-      </label>
+
+      <div class="social-platforms-section">
+        <label class="field-label">Social Media Accounts <span class="opt">optional</span></label>
+        <p class="field-hint" style="margin-bottom:12px;">Add your social media profiles so clients can find you on their favourite platforms.</p>
+        <div id="socialPlatformsList" class="social-platforms-list"></div>
+        <button type="button" class="btn-add-platform" id="addSocialPlatformBtn">
+          <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+          Add Social Account
+        </button>
+      </div>
+
       <label class="field">Business address <span class="opt" id="businessAddressLabel">optional — shown publicly</span>
         <input type="text" id="stepBusinessAddress" placeholder="e.g. 12 Market St, Lagos" />
       </label>
