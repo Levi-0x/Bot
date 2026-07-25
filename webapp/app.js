@@ -27,6 +27,54 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function renderSocialPlatformsDisplay(profile) {
+  let platforms = [];
+  if (profile.social_platforms) {
+    try {
+      const parsed = typeof profile.social_platforms === "string"
+        ? JSON.parse(profile.social_platforms)
+        : profile.social_platforms;
+      if (Array.isArray(parsed)) platforms = parsed;
+    } catch(e) {}
+  }
+  if (!platforms.length) return "";
+
+  const platDefs = {
+    instagram: { label: "Instagram", color: "#E4405F",
+      svg: `<svg viewBox="0 0 24 24" fill="#E4405F"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>` },
+    twitter: { label: "X", color: "#000000", lightBg: true,
+      svg: `<svg viewBox="0 0 24 24" fill="#000000"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>` },
+    facebook: { label: "Facebook", color: "#1877F2",
+      svg: `<svg viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>` },
+    linkedin: { label: "LinkedIn", color: "#0A66C2",
+      svg: `<svg viewBox="0 0 24 24" fill="#0A66C2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>` },
+    youtube: { label: "YouTube", color: "#FF0000",
+      svg: `<svg viewBox="0 0 24 24" fill="#FF0000"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>` },
+  };
+
+  const tagsHtml = platforms.map(sp => {
+    const def = platDefs[sp.platform];
+    if (!def) return "";
+    const isLight = def.lightBg;
+    const bgColor = isLight ? "#FFFFFF" : `${def.color}12`;
+    const borderColor = isLight ? "#E0E0E0" : `${def.color}30`;
+    const textColor = isLight ? "#333333" : def.color;
+    return `<span class="social-tag" style="background:${bgColor};color:${textColor};border:1px solid ${borderColor};">
+      <span class="social-tag-icon">${def.svg}</span>
+      <span class="social-tag-label">${escapeHtml(def.label)}</span>
+      <span class="social-tag-handle">${escapeHtml(sp.handle || "")}</span>
+    </span>`;
+  }).filter(Boolean).join("");
+
+  if (!tagsHtml) return "";
+
+  return `
+    <div class="detail-section">
+      <div class="detail-section-title">Social Media</div>
+      <div class="social-tags-wrap">${tagsHtml}</div>
+    </div>`;
+}
+
 function photoUrl(entrepreneurId) {
   return `/api/photo/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`;
 }
@@ -44,6 +92,10 @@ async function apiGet(path) {
   const separator = path.includes("?") ? "&" : "?";
   const res = await fetch(`${path}${separator}initData=${encodeURIComponent(tg.initData)}`);
   return res.json();
+}
+
+function asArray(data) {
+  return Array.isArray(data) ? data : [];
 }
 
 async function apiPost(path, body) {
@@ -127,10 +179,10 @@ async function loadHome() {
   }
 
   const [categories, top, recent, featured] = await Promise.all([
-    apiGet("/api/categories"),
-    apiGet("/api/top?limit=10"),
-    apiGet("/api/recent?limit=10"),
-    apiGet("/api/featured?limit=10"),
+    asArray(await apiGet("/api/categories")),
+    asArray(await apiGet("/api/top?limit=10")),
+    asArray(await apiGet("/api/recent?limit=10")),
+    asArray(await apiGet("/api/featured?limit=10")),
   ]);
 
   // Categories
@@ -177,8 +229,8 @@ function renderCardScroll(containerId, items) {
   }
   container.innerHTML = items.map(item => {
     const ratingText = item.avg_rating ? `\u2b50 ${item.avg_rating}` : "";
-    const serviceLabel = (item.services && item.services[0]) || "";
-    const displayName = typeof item.services?.[0] === "object" ? item.services[0].name : serviceLabel;
+    const rawService = (item.services && item.services[0]) || "";
+    const serviceLabel = typeof rawService === "object" ? rawService.name : rawService;
     return `
       <div class="business-card" data-open-id="${item.id}">
         <div class="card-avatar" style="background:${colorForName(item.name)}">
@@ -187,7 +239,7 @@ function renderCardScroll(containerId, items) {
             : initials(item.name)}
         </div>
         <div class="card-name">${escapeHtml(item.name)}</div>
-        <div class="card-service">${escapeHtml(displayName)}</div>
+        <div class="card-service">${escapeHtml(serviceLabel)}</div>
         <div class="card-rating">${ratingText}</div>
       </div>`;
   }).join("");
@@ -205,7 +257,7 @@ let exploreActiveType = "all";
 
 async function loadExplore() {
   if (!exploreServicesCache.length) {
-    exploreServicesCache = await apiGet("/api/services");
+    exploreServicesCache = asArray(await apiGet("/api/services"));
   }
   renderExploreChips();
   setupExploreTypeTabs();
@@ -252,7 +304,7 @@ async function runSearch(query) {
     return;
   }
   const typeParam = exploreActiveType !== "all" ? `&type=${exploreActiveType}` : "";
-  const results = await apiGet(`/api/find?service=${encodeURIComponent(query)}${typeParam}`);
+  const results = asArray(await apiGet(`/api/find?service=${encodeURIComponent(query)}${typeParam}`));
   container.innerHTML = results.length
     ? results.map(r => renderResultCard(r)).join("")
     : emptyState(`No results for "${escapeHtml(query)}". Try another search.`);
@@ -261,14 +313,14 @@ async function runSearch(query) {
 
 function renderResultCard(r) {
   const ratingText = r.avg_rating ? `\u2b50 ${r.avg_rating} (${r.rating_count})` : "No ratings yet";
-  const serviceLabel = (r.services && r.services[0]) || "";
-  const displayName = typeof serviceLabel === "object" ? serviceLabel.name : serviceLabel;
+  const rawService = (r.services && r.services[0]) || "";
+  const serviceLabel = typeof rawService === "object" ? rawService.name : rawService;
   return `
     <div class="result-card" data-open-id="${r.id}">
       ${avatarHtml(r)}
       <div class="result-info">
         <h3>${escapeHtml(r.name)}</h3>
-        <p class="result-service">${escapeHtml(displayName)}</p>
+        <p class="result-service">${escapeHtml(serviceLabel)}</p>
         <p class="result-rating">${ratingText}</p>
       </div>
     </div>`;
@@ -293,7 +345,7 @@ document.getElementById("searchInput").addEventListener("input", (e) => {
 // ============================================================
 async function loadFavorites() {
   const container = document.getElementById("favoritesContent");
-  const favorites = await apiGet("/api/favorites");
+  const favorites = asArray(await apiGet("/api/favorites"));
   if (!favorites.length) {
     container.innerHTML = `
       <div class="favorites-empty">
@@ -332,12 +384,12 @@ let currentProfile = null;
 
 async function loadProfile() {
   const container = document.getElementById("profileContent");
-  const res = await fetch(`/api/profile?initData=${encodeURIComponent(tg.initData)}`);
-  if (res.status === 401) {
+  const profile = await apiGet("/api/profile");
+
+  if (profile.error === "invalid_init_data") {
     container.innerHTML = emptyState("Couldn't verify your account. Try reopening from the bot.");
     return;
   }
-  const profile = await res.json();
   currentProfile = profile;
 
   if (!profile) {
@@ -392,6 +444,7 @@ async function loadProfile() {
     tg.showConfirm("Remove your listing? This can't be undone.", async (confirmed) => {
       if (!confirmed) return;
       await apiPost("/api/unregister", { initData: tg.initData });
+      verifiedPhoneNumber = null;
       tg.showAlert("You've been removed from the list.");
       loadProfile();
     });
@@ -416,13 +469,12 @@ async function openDetail(entrepreneurId) {
   const container = document.getElementById("detailContent");
   container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:40px 0;">Loading...</p>`;
 
-  const res = await fetch(`/api/entrepreneur/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`);
-  if (!res.ok) {
+  const profile = await apiGet(`/api/entrepreneur/${entrepreneurId}`);
+  if (profile.error) {
     container.innerHTML = emptyState("This listing couldn't be found.");
     return;
   }
-  const profile = await res.json();
-  const reviews = await apiGet(`/api/reviews/${entrepreneurId}`);
+  const reviews = asArray(await apiGet(`/api/reviews/${entrepreneurId}`));
   detailIsFavorited = profile.is_favorited || false;
 
   // Update fav button
@@ -690,9 +742,9 @@ function openStepper(existingProfile) {
   uploadedLogoBase64 = null;
   uploadedCoverBase64 = null;
   verifiedPhoneNumber = existingProfile?.phone_verified ? existingProfile.phone : null;
-  selectedOfferType = "service";
+  selectedOfferType = existingProfile?.business_type || "service";
 
-  document.getElementById("stepName").value = existingProfile?.name || "";
+  document.getElementById("stepName").value = existingProfile?.name || (tg.initDataUnsafe?.user ? [tg.initDataUnsafe.user.first_name, tg.initDataUnsafe.user.last_name].filter(Boolean).join(" ") : "");
   document.getElementById("stepEmail").value = existingProfile?.email || "";
   document.getElementById("stepBusinessAddress").value = existingProfile?.business_address || "";
   document.getElementById("stepWebsite").value = existingProfile?.website || "";
@@ -734,6 +786,8 @@ function openStepper(existingProfile) {
 
   // Reset offer type selection
   document.querySelectorAll(".offer-type-card").forEach(c => c.classList.remove("selected"));
+  const selectedCard = document.querySelector(`.offer-type-card[data-offer="${selectedOfferType}"]`);
+  if (selectedCard) selectedCard.classList.add("selected");
 
   renderTags();
   goToStep(1);
@@ -964,6 +1018,8 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
     home_address: homeAddress,
     description: document.getElementById("stepDescription").value.trim(),
     business_type: selectedOfferType,
+    price: Number(document.getElementById("stepPrice").value) || 0,
+    delivery_available: document.getElementById("stepDelivery").checked ? 1 : 0,
   };
   if (uploadedPhotoBase64) payload.photo_base64 = uploadedPhotoBase64;
   else if (currentProfile?.id) payload.keep_existing_photo = true;
@@ -1005,19 +1061,18 @@ tg.onEvent("themeChanged", applyTelegramTheme);
 // ADMIN PANEL
 // ============================================================
 async function checkAdminAccess() {
-  const res = await apiGet(`/api/admin/check?initData=${encodeURIComponent(tg.initData)}`);
+  const res = await apiGet("/api/admin/check");
   if (res.is_admin) {
     document.getElementById("adminNavBtn").style.display = "flex";
   }
 }
 
 async function loadAdminPanel() {
-  const statsRes = await fetch(`/api/admin/stats?initData=${encodeURIComponent(tg.initData)}`);
-  if (statsRes.status === 403) {
+  const stats = await apiGet("/api/admin/stats");
+  if (stats.error) {
     document.getElementById("adminStats").innerHTML = emptyState("No admin access.");
     return;
   }
-  const stats = await statsRes.json();
   document.getElementById("adminStats").innerHTML = `
     <div class="stat-card"><b>${stats.entrepreneurs}</b><span>Entrepreneurs</span></div>
     <div class="stat-card"><b>${stats.services}</b><span>Services</span></div>
@@ -1026,9 +1081,8 @@ async function loadAdminPanel() {
 }
 
 async function refreshAdminList() {
-  const res = await fetch(`/api/admin/list_admins?initData=${encodeURIComponent(tg.initData)}`);
-  const data = await res.json();
-  if (!res.ok) return;
+  const data = await apiGet("/api/admin/list_admins");
+  if (data.error) return;
   document.getElementById("adminListDisplay").innerHTML =
     `<b>Root:</b> ${data.root_admins.join(", ") || "none"}<br><b>Added:</b> ${data.added_admins.join(", ") || "none"}`;
 }

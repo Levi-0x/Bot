@@ -165,7 +165,8 @@ def api_register():
         missing.append("name")
     if not services:
         missing.append("services")
-    if "@" not in email or "." not in email.split("@")[-1]:
+    import re as _re
+    if not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
         missing.append("email")
     if not photo_base64 and not body.get("keep_existing_photo"):
         missing.append("photo")
@@ -176,7 +177,6 @@ def api_register():
 
     fields = {
         "name": name,
-        "socials": (body.get("socials") or "").strip(),
         "email": email,
         "business_address": business_address,
         "website": (body.get("website") or "").strip(),

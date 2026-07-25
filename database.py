@@ -20,9 +20,10 @@ def _stem(word: str) -> str:
 
 @contextmanager
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
     try:
         yield conn
         conn.commit()
@@ -277,6 +278,15 @@ def _row_to_dict(row):
             d["gallery"] = []
     else:
         d["gallery"] = []
+    if d.get("social_platforms"):
+        try:
+            import json
+            parsed = json.loads(d["social_platforms"])
+            d["social_platforms"] = parsed if isinstance(parsed, list) else []
+        except Exception:
+            d["social_platforms"] = []
+    else:
+        d["social_platforms"] = []
     return d
 
 
@@ -373,7 +383,7 @@ def find_by_service(query: str, category: str = "", service_type: str = ""):
             matching_ids |= {row["entrepreneur_id"] for row in rows}
 
         name_or_address_rows = conn.execute("""
-            SELECT id FROM entrepreneurs WHERE name LIKE ? OR business_address LIKE ? OR description LIKE ?
+            SELECT id FROM entrepreneurs WHERE LOWER(name) LIKE LOWER(?) OR LOWER(business_address) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?)
         """, (f"%{query_lower}%", f"%{query_lower}%", f"%{query_lower}%")).fetchall()
         matching_ids |= {row["id"] for row in name_or_address_rows}
 
@@ -627,6 +637,14 @@ def delete_entrepreneur(telegram_id: int):
     with get_connection() as conn:
         cursor = conn.execute(
             "DELETE FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
+        )
+        conn.execute(
+            "DELETE FROM favorites WHERE user_telegram_id = ?",
+            (telegram_id,)
+        )
+        conn.execute(
+            "DELETE FROM phone_verifications WHERE telegram_id = ?",
+            (telegram_id,)
         )
         return cursor.rowcount > 0
 
