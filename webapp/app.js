@@ -386,7 +386,7 @@ async function loadProfile() {
   const container = document.getElementById("profileContent");
   const profile = await apiGet("/api/profile");
 
-  if (profile.error === "invalid_init_data") {
+  if (profile && profile.error === "invalid_init_data") {
     container.innerHTML = emptyState("Couldn't verify your account. Try reopening from the bot.");
     return;
   }
