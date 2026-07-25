@@ -91,14 +91,7 @@ function showView(name) {
 }
 
 document.querySelectorAll("[data-nav]").forEach(btn => {
-  btn.addEventListener("click", () => {
-    const nav = btn.dataset.nav;
-    if (nav === "stepper") {
-      openStepper(null);
-    } else {
-      showView(nav);
-    }
-  });
+  btn.addEventListener("click", () => showView(btn.dataset.nav));
 });
 document.querySelectorAll("[data-goto]").forEach(el => {
   el.addEventListener("click", () => showView(el.dataset.goto));
