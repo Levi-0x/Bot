@@ -1,16 +1,13 @@
 /*
   app.js — GrowthHub Mini App
-  --------------------------------
-  Drives the whole single-page app: Home, Explore, Profile, and the
-  5-step Register/Edit flow (grouping the 8 requested fields into
-  logical steps: Basic Info, Services, Contact, Photo, Verification).
+  Complete frontend logic for the redesigned UI.
 */
 
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-const AVATAR_COLORS = ["#0F9B8E", "#14213D", "#FCA311", "#4A6FA5"];
+const AVATAR_COLORS = ["#0F9B8E", "#14213D", "#FCA311", "#4A6FA5", "#E91E63", "#2ECC71"];
 
 function colorForName(name) {
   let hash = 0;
@@ -30,64 +27,8 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function renderSocialPlatformsDisplay(profile) {
-  let platforms = [];
-  if (profile.social_platforms) {
-    try {
-      const parsed = typeof profile.social_platforms === "string"
-        ? JSON.parse(profile.social_platforms)
-        : profile.social_platforms;
-      if (Array.isArray(parsed)) platforms = parsed;
-    } catch(e) { /* ignore */ }
-  }
-  // Backwards compat: show old socials field as a tag
-  if (!platforms.length && profile.socials) {
-    platforms = [{ platform: "other", handle: profile.socials }];
-  }
-  if (!platforms.length) return "";
-
-  const platDefs = {
-    instagram: { label: "Instagram", color: "#E4405F",
-      svg: `<svg viewBox="0 0 24 24" fill="#E4405F" width="14" height="14"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>` },
-    twitter: { label: "X", color: "#000000",
-      svg: `<svg viewBox="0 0 24 24" fill="#000000" width="14" height="14"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>` },
-    facebook: { label: "Facebook", color: "#1877F2",
-      svg: `<svg viewBox="0 0 24 24" fill="#1877F2" width="14" height="14"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>` },
-    linkedin: { label: "LinkedIn", color: "#0A66C2",
-      svg: `<svg viewBox="0 0 24 24" fill="#0A66C2" width="14" height="14"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>` },
-    tiktok: { label: "TikTok", color: "#010101",
-      svg: `<svg viewBox="0 0 24 24" fill="#010101" width="14" height="14"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>` },
-    youtube: { label: "YouTube", color: "#FF0000",
-      svg: `<svg viewBox="0 0 24 24" fill="#FF0000" width="14" height="14"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>` },
-    snapchat: { label: "Snapchat", color: "#FFFC00",
-      svg: `<svg viewBox="0 0 24 24" fill="#000000" width="14" height="14"><path d="M12.206.793c.99 0 4.347.276 5.93 3.821.529 1.193.403 3.219.299 4.847l-.003.06c-.012.18-.022.345-.03.51.075.045.203.09.401.09.3-.016.659-.12.922-.214.094-.04.199-.06.3-.06.337 0 .596.181.731.394.09.136.15.3.152.475 0 .195-.055.39-.164.557-.352.552-.956.79-1.457.914-.17.042-.34.075-.492.1-.09.015-.18.031-.27.047l-.06.012c-.032.009-.062.021-.09.033-.015.006-.03.014-.045.021-.12.06-.21.105-.33.15-.39.135-.957.24-1.573.342-.24.042-.48.075-.72.105-.12.015-.24.03-.36.045-.06.009-.12.018-.18.026-.015.003-.03.006-.045.009-.12.025-.24.045-.36.06-.36.055-.72.09-1.2.09s-.84-.035-1.2-.09c-.12-.015-.24-.035-.36-.06-.015-.003-.03-.006-.045-.009-.06-.009-.12-.018-.18-.026-.12-.015-.24-.03-.36-.045-.24-.03-.48-.063-.72-.105-.615-.103-1.183-.208-1.573-.342-.12-.045-.21-.09-.33-.15-.028-.012-.058-.024-.09-.033l-.06-.012c-.152-.025-.322-.058-.492-.1-.5-.123-1.105-.362-1.457-.914-.109-.167-.164-.362-.164-.557 0-.175.062-.34.152-.475.135-.213.394-.394.731-.394.1 0 .206.02.3.06.263.094.622.198.922.214.198 0 .326-.045.401-.09-.008-.165-.018-.33-.03-.51l-.003-.06c-.104-1.628-.23-3.654.299-4.847C7.859 1.069 11.216.793 12.206.793z"/></svg>` },
-    pinterest: { label: "Pinterest", color: "#BD081C",
-      svg: `<svg viewBox="0 0 24 24" fill="#BD081C" width="14" height="14"><path d="M12 0C5.373 0 0 5.372 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 01.083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12 0-6.628-5.373-12-12-12z"/></svg>` },
-    website: { label: "Website", color: "#6B7280",
-      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>` },
-    other: { label: "", color: "#6B7280",
-      svg: `<svg viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" width="14" height="14"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>` },
-  };
-
-  const tagsHtml = platforms.map(sp => {
-    const def = platDefs[sp.platform] || platDefs.other;
-    const displayHandle = sp.handle || "";
-    return `<span class="social-tag" style="background:${def.color}12;color:${def.color};border:1px solid ${def.color}30;">
-      <span class="social-tag-icon">${def.svg}</span>
-      <span class="social-tag-label">${escapeHtml(def.label)}</span>
-      <span class="social-tag-handle">${escapeHtml(displayHandle)}</span>
-    </span>`;
-  }).join("");
-
-  return `
-    <div class="social-display-section">
-      <div class="section-head"><h2>Social Media</h2></div>
-      <div class="social-tags-wrap">${tagsHtml}</div>
-    </div>`;
-}
-
-function renderSocialPlatformsDisplayPublic(profile) {
-  return renderSocialPlatformsDisplay(profile);
+function photoUrl(entrepreneurId) {
+  return `/api/photo/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`;
 }
 
 function avatarHtml(entrepreneur, size) {
@@ -98,21 +39,13 @@ function avatarHtml(entrepreneur, size) {
   return `<div class="avatar-circle" style="background:${colorForName(entrepreneur.name)};${style}">${initials(entrepreneur.name)}</div>`;
 }
 
-// Every directory endpoint now requires proof this request genuinely came
-// from inside the Mini App (valid initData) — otherwise anyone with a
-// script could scrape every phone number, email, and photo in bulk from
-// outside Telegram entirely. This helper keeps that from getting missed
-// on any individual call.
-function photoUrl(entrepreneurId) {
-  return `/api/photo/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`;
-}
-
 // ---- API helpers ----
 async function apiGet(path) {
   const separator = path.includes("?") ? "&" : "?";
   const res = await fetch(`${path}${separator}initData=${encodeURIComponent(tg.initData)}`);
   return res.json();
 }
+
 async function apiPost(path, body) {
   const res = await fetch(path, {
     method: "POST",
@@ -122,185 +55,152 @@ async function apiPost(path, body) {
   return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
 }
 
-// ============================================================
-// Navigation
-// ============================================================
-function showView(name) {
-  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-  document.getElementById(`view-${name}`).classList.add("active");
-
-  document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
-  const navBtn = document.querySelector(`.nav-btn[data-nav="${name}"]`);
-  if (navBtn) navBtn.classList.add("active");
-
-  if (name === "explore") loadExplore();
-  if (name === "profile") loadProfile();
-  if (name === "home") loadHome();
-  if (name === "admin") loadAdminPanel();
-}
-
-document.querySelectorAll("[data-nav]").forEach((btn) => btn.addEventListener("click", () => showView(btn.dataset.nav)));
-document.querySelectorAll("[data-goto]").forEach((el) => el.addEventListener("click", () => showView(el.dataset.goto)));
-
-// ============================================================
-// HOME
-// ============================================================
-let homeAllServices = [];
-let homeActiveType = "all";
-
-function renderResultCard(r) {
-  const ratingText = r.avg_rating ? `⭐ ${r.avg_rating} (${r.rating_count} ratings)` : "No ratings yet";
-  const serviceLabel = r.service || (r.services && r.services[0]) || "";
-  const contactParts = [r.phone, r.socials].filter(Boolean).join(" · ");
-  return `
-    <div class="result-card" data-open-id="${r.id}">
-      ${avatarHtml(r)}
-      <div class="result-info">
-        <h3>${escapeHtml(r.name)}</h3>
-        <p class="result-service">${escapeHtml(serviceLabel)}</p>
-        <p class="result-rating">${ratingText}</p>
-        <p class="result-contact">${escapeHtml(contactParts)}</p>
-      </div>
-    </div>`;
-}
-
-// Attach click-to-open-detail on every rendered results container.
-// Called after any innerHTML update that includes result-cards.
-function wireResultCardClicks(container) {
-  container.querySelectorAll("[data-open-id]").forEach((card) => {
-    card.style.cursor = "pointer";
-    card.addEventListener("click", () => openDetail(Number(card.dataset.openId)));
-  });
-}
-
 function emptyState(message) {
   return `
     <div class="empty-state">
-      <svg viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M8 15s1.5-2 4-2 4 2 4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="9" x2="9.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="15" y1="9" x2="15.01" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <p>${message}</p>
     </div>`;
 }
 
+// ============================================================
+// Navigation
+// ============================================================
+let currentView = "home";
+
+function showView(name) {
+  if (name === "stepper") {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-stepper").classList.add("active");
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    currentView = name;
+    return;
+  }
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.getElementById(`view-${name}`).classList.add("active");
+  document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+  const navBtn = document.querySelector(`.nav-btn[data-nav="${name}"]`);
+  if (navBtn) navBtn.classList.add("active");
+  currentView = name;
+
+  if (name === "home") loadHome();
+  if (name === "explore") loadExplore();
+  if (name === "favorites") loadFavorites();
+  if (name === "profile") loadProfile();
+  if (name === "admin") loadAdminPanel();
+}
+
+document.querySelectorAll("[data-nav]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const nav = btn.dataset.nav;
+    if (nav === "stepper") {
+      openStepper(null);
+    } else {
+      showView(nav);
+    }
+  });
+});
+document.querySelectorAll("[data-goto]").forEach(el => {
+  el.addEventListener("click", () => showView(el.dataset.goto));
+});
+
+// ============================================================
+// HOME
+// ============================================================
 async function loadHome() {
   const user = tg.initDataUnsafe?.user;
-  document.getElementById("homeUserName").textContent = user?.first_name || "there";
-  document.getElementById("homeAvatar").textContent = initials(user?.first_name || "?");
+  const firstName = user?.first_name || "";
+  const photoUrl = user?.photo_url;
 
-  const [services, top, categories] = await Promise.all([
-    apiGet("/api/services"),
-    apiGet("/api/top?limit=5"),
+  const storageKey = "growthhub_visited";
+  const isFirstVisit = !localStorage.getItem(storageKey);
+  const welcomeEl = document.getElementById("homeWelcomeText");
+  const nameEl = document.getElementById("homeUserName");
+
+  if (isFirstVisit) {
+    welcomeEl.textContent = "Hello there";
+    nameEl.textContent = firstName || "";
+    localStorage.setItem(storageKey, "1");
+  } else {
+    welcomeEl.textContent = "Welcome back";
+    nameEl.textContent = firstName || "there";
+  }
+
+  const avatarEl = document.getElementById("homeAvatar");
+  if (photoUrl) {
+    avatarEl.innerHTML = `<img src="${escapeHtml(photoUrl)}" alt="" onerror="this.parentElement.innerHTML='<svg viewBox=\\'0 0 24 24\\' fill=\\'none\\'><circle cx=\\'12\\' cy=\\'8\\' r=\\'4\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'/><path d=\\'M4 20c0-4 4-6 8-6s8 2 8 6\\' stroke=\\'currentColor\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\'/></svg>'">`;
+  } else {
+    avatarEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  }
+
+  const [categories, top, recent, featured] = await Promise.all([
     apiGet("/api/categories"),
+    apiGet("/api/top?limit=10"),
+    apiGet("/api/recent?limit=10"),
+    apiGet("/api/featured?limit=10"),
   ]);
 
-  homeAllServices = services;
-
-  // Render category tiles (filtered by type)
-  renderHomeCategories(services);
-
-  // Render category chip tiles
-  renderHomeCategoryChips(categories);
-
-  document.getElementById("homeTop").innerHTML = top.length
-    ? top.map(renderResultCard).join("")
-    : emptyState("No entrepreneurs listed yet.");
-  wireResultCardClicks(document.getElementById("homeTop"));
-
-  // Setup type tabs
-  setupHomeTypeTabs();
-}
-
-function renderHomeCategories(services) {
-  const container = document.getElementById("homeCategories");
-  const filtered = homeActiveType === "all"
-    ? services.slice(0, 8)
-    : services.filter(s => (s.category || "service") === homeActiveType).slice(0, 8);
-
-  container.innerHTML = filtered.length
-    ? filtered.map(s => `
-      <button class="category-tile" data-service="${escapeHtml(s.name)}">
-        <span class="cat-icon" style="background:${colorForName(s.name)}">${s.name[0].toUpperCase()}</span>
-        <span>${escapeHtml(s.name)}</span>
-      </button>`).join("")
-    : emptyState("No services in this category yet.");
-
-  container.querySelectorAll(".category-tile").forEach(tile => {
-    tile.addEventListener("click", () => {
-      showView("explore");
-      const q = tile.dataset.service;
-      setTimeout(() => {
-        document.getElementById("searchInput").value = q;
-        runSearch(q);
-      }, 0);
-    });
-  });
-}
-
-function renderHomeCategoryChips(categories) {
-  const container = document.getElementById("homeCategoryTiles");
-  container.innerHTML = categories.slice(0, 10).map(c => `
+  // Categories
+  const chipContainer = document.getElementById("homeCategoryChips");
+  chipContainer.innerHTML = categories.slice(0, 10).map(c => `
     <button class="category-chip" data-category="${escapeHtml(c.name)}">
       <span class="category-chip-icon" style="background:${escapeHtml(c.color)}">${escapeHtml(c.icon)}</span>
       <span>${escapeHtml(c.name)}</span>
     </button>`).join("");
-
-  container.querySelectorAll(".category-chip").forEach(chip => {
+  chipContainer.querySelectorAll(".category-chip").forEach(chip => {
     chip.addEventListener("click", () => {
       showView("explore");
       setTimeout(() => {
-        const catName = chip.dataset.category;
-        // Filter explore chips to this category
-        document.getElementById("searchInput").value = catName;
-        runSearch(catName);
-      }, 0);
+        document.getElementById("searchInput").value = chip.dataset.category;
+        runSearch(chip.dataset.category);
+      }, 50);
     });
   });
+
+  // Top
+  renderCardScroll("homeTop", top);
+
+  // Recent
+  renderCardScroll("homeRecent", recent);
+
+  // Trending (use top as proxy)
+  if (top.length > 3) {
+    document.getElementById("homeTrendingBlock").style.display = "block";
+    renderCardScroll("homeTrending", top.slice(0, 8));
+  }
+
+  // Featured
+  if (featured.length > 0) {
+    document.getElementById("homeFeaturedBlock").style.display = "block";
+    renderCardScroll("homeFeatured", featured);
+  }
 }
 
-function setupHomeTypeTabs() {
-  document.querySelectorAll("#view-home .type-tab").forEach(tab => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll("#view-home .type-tab").forEach(t => t.classList.remove("active"));
-      tab.classList.add("active");
-      homeActiveType = tab.dataset.type;
-      renderHomeCategories(homeAllServices);
-    });
-  });
-}
-
-// Home search functionality
-let homeSearchTimer = null;
-const homeSearchInput = document.getElementById("homeSearchInput");
-const homeSearchResults = document.getElementById("homeSearchResults");
-const homeDefaultContent = document.getElementById("homeDefaultContent");
-const homeSearchClear = document.getElementById("homeSearchClear");
-
-if (homeSearchInput) {
-  homeSearchInput.addEventListener("input", (e) => {
-    const q = e.target.value.trim();
-    homeSearchClear.style.display = q ? "block" : "none";
-
-    if (homeSearchTimer) clearTimeout(homeSearchTimer);
-    if (q.length > 1) {
-      homeSearchTimer = setTimeout(async () => {
-        homeDefaultContent.style.display = "none";
-        homeSearchResults.style.display = "flex";
-        const results = await apiGet(`/api/find?service=${encodeURIComponent(q)}`);
-        homeSearchResults.innerHTML = results.length
-          ? results.map(renderResultCard).join("")
-          : emptyState(`No results for "${escapeHtml(q)}". Try another search.`);
-        wireResultCardClicks(homeSearchResults);
-      }, 300);
-    } else {
-      homeDefaultContent.style.display = "block";
-      homeSearchResults.style.display = "none";
-    }
-  });
-
-  homeSearchClear.addEventListener("click", () => {
-    homeSearchInput.value = "";
-    homeSearchClear.style.display = "none";
-    homeDefaultContent.style.display = "block";
-    homeSearchResults.style.display = "none";
+function renderCardScroll(containerId, items) {
+  const container = document.getElementById(containerId);
+  if (!items.length) {
+    container.innerHTML = `<div class="empty-state" style="min-width:200px;"><p>No entrepreneurs yet.</p></div>`;
+    return;
+  }
+  container.innerHTML = items.map(item => {
+    const ratingText = item.avg_rating ? `\u2b50 ${item.avg_rating}` : "";
+    const serviceLabel = (item.services && item.services[0]) || "";
+    const displayName = typeof item.services?.[0] === "object" ? item.services[0].name : serviceLabel;
+    return `
+      <div class="business-card" data-open-id="${item.id}">
+        <div class="card-avatar" style="background:${colorForName(item.name)}">
+          ${item.id && (item.photo_base64 || item.photo_file_id)
+            ? `<img src="${photoUrl(item.id)}" alt="" onerror="this.parentElement.textContent='${initials(item.name)}'">`
+            : initials(item.name)}
+        </div>
+        <div class="card-name">${escapeHtml(item.name)}</div>
+        <div class="card-service">${escapeHtml(displayName)}</div>
+        <div class="card-rating">${ratingText}</div>
+      </div>`;
+  }).join("");
+  container.querySelectorAll("[data-open-id]").forEach(card => {
+    card.style.cursor = "pointer";
+    card.addEventListener("click", () => openDetail(Number(card.dataset.openId)));
   });
 }
 
@@ -322,15 +222,15 @@ function renderExploreChips() {
   const chipContainer = document.getElementById("exploreChips");
   const filtered = exploreActiveType === "all"
     ? exploreServicesCache
-    : exploreServicesCache.filter(s => (s.category || "service") === exploreActiveType);
+    : exploreServicesCache.filter(s => (s.type || "service") === exploreActiveType);
 
   chipContainer.innerHTML =
     `<button class="chip active" data-chip="all">All</button>` +
-    filtered.slice(0, 10).map((s) => `<button class="chip" data-chip="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`).join("");
+    filtered.slice(0, 12).map(s => `<button class="chip" data-chip="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>`).join("");
 
-  chipContainer.querySelectorAll(".chip").forEach((chip) => {
+  chipContainer.querySelectorAll(".chip").forEach(chip => {
     chip.addEventListener("click", () => {
-      chipContainer.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+      chipContainer.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
       chip.classList.add("active");
       const value = chip.dataset.chip === "all" ? "" : chip.dataset.chip;
       document.getElementById("searchInput").value = value;
@@ -340,13 +240,12 @@ function renderExploreChips() {
 }
 
 function setupExploreTypeTabs() {
-  document.querySelectorAll("#view-explore .type-tab").forEach(tab => {
+  document.querySelectorAll(".explore-tab").forEach(tab => {
     tab.addEventListener("click", () => {
-      document.querySelectorAll("#view-explore .type-tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".explore-tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       exploreActiveType = tab.dataset.type;
       renderExploreChips();
-      // Re-run search if there's a query
       const q = document.getElementById("searchInput").value.trim();
       if (q) runSearch(q);
     });
@@ -362,17 +261,76 @@ async function runSearch(query) {
   const typeParam = exploreActiveType !== "all" ? `&type=${exploreActiveType}` : "";
   const results = await apiGet(`/api/find?service=${encodeURIComponent(query)}${typeParam}`);
   container.innerHTML = results.length
-    ? results.map(renderResultCard).join("")
-    : emptyState(`We couldn't find anyone for "${escapeHtml(query)}". Try another search.`);
+    ? results.map(r => renderResultCard(r)).join("")
+    : emptyState(`No results for "${escapeHtml(query)}". Try another search.`);
   wireResultCardClicks(container);
+}
+
+function renderResultCard(r) {
+  const ratingText = r.avg_rating ? `\u2b50 ${r.avg_rating} (${r.rating_count})` : "No ratings yet";
+  const serviceLabel = (r.services && r.services[0]) || "";
+  const displayName = typeof serviceLabel === "object" ? serviceLabel.name : serviceLabel;
+  return `
+    <div class="result-card" data-open-id="${r.id}">
+      ${avatarHtml(r)}
+      <div class="result-info">
+        <h3>${escapeHtml(r.name)}</h3>
+        <p class="result-service">${escapeHtml(displayName)}</p>
+        <p class="result-rating">${ratingText}</p>
+      </div>
+    </div>`;
+}
+
+function wireResultCardClicks(container) {
+  container.querySelectorAll("[data-open-id]").forEach(card => {
+    card.style.cursor = "pointer";
+    card.addEventListener("click", () => openDetail(Number(card.dataset.openId)));
+  });
 }
 
 document.getElementById("searchInput").addEventListener("input", (e) => {
   const q = e.target.value.trim();
-  document.querySelectorAll("#exploreChips .chip").forEach((c) => c.classList.remove("active"));
+  document.querySelectorAll("#exploreChips .chip").forEach(c => c.classList.remove("active"));
   if (q.length > 1) runSearch(q);
   else document.getElementById("exploreResults").innerHTML = "";
 });
+
+// ============================================================
+// FAVORITES
+// ============================================================
+async function loadFavorites() {
+  const container = document.getElementById("favoritesContent");
+  const favorites = await apiGet("/api/favorites");
+  if (!favorites.length) {
+    container.innerHTML = `
+      <div class="favorites-empty">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" stroke="currentColor" stroke-width="2"/></svg>
+        <p>No favorites yet.<br>Tap the heart icon on any profile to save it here.</p>
+      </div>`;
+    return;
+  }
+  container.innerHTML = `<div class="results">${favorites.map(r => `
+    <div class="result-card" data-open-id="${r.id}">
+      ${avatarHtml(r)}
+      <div class="result-info">
+        <h3>${escapeHtml(r.name)}</h3>
+        <p class="result-service">${escapeHtml((r.services && r.services[0]) || "")}</p>
+        <p class="result-rating">${r.avg_rating ? `\u2b50 ${r.avg_rating} (${r.rating_count})` : "No ratings yet"}</p>
+      </div>
+      <button class="fav-remove-btn" data-fav-remove="${r.id}" title="Remove from favorites">
+        <svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>`).join("")}</div>`;
+  wireResultCardClicks(container);
+  container.querySelectorAll("[data-fav-remove]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = Number(btn.dataset.favRemove);
+      await apiPost("/api/favorites/remove", { initData: tg.initData, entrepreneur_id: id });
+      loadFavorites();
+    });
+  });
+}
 
 // ============================================================
 // PROFILE
@@ -382,55 +340,58 @@ let currentProfile = null;
 async function loadProfile() {
   const container = document.getElementById("profileContent");
   const res = await fetch(`/api/profile?initData=${encodeURIComponent(tg.initData)}`);
-
   if (res.status === 401) {
-    container.innerHTML = emptyState("Couldn't verify your Telegram account. Try reopening the app from the bot.");
+    container.innerHTML = emptyState("Couldn't verify your account. Try reopening from the bot.");
     return;
   }
-
   const profile = await res.json();
   currentProfile = profile;
 
   if (!profile) {
     container.innerHTML = `
       <div class="profile-cta">
-        <div class="avatar-circle" style="background:var(--secondary);width:56px;height:56px;margin:0 auto 10px;">
-          <svg viewBox="0 0 24 24" fill="none" style="width:24px;height:24px;"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.4" stroke-linecap="round"/></svg>
+        <div class="avatar-circle" style="background:var(--secondary);width:60px;height:60px;margin:0 auto 12px;">
+          <svg viewBox="0 0 24 24" fill="none" style="width:26px;height:26px;"><path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.4" stroke-linecap="round"/></svg>
         </div>
         <h3>You're not listed yet</h3>
-        <p>Create your listing so people searching for your services can find you.</p>
-        <button class="btn-primary" id="registerCta">Register as Entrepreneur</button>
+        <p>Create your listing so people can discover your services and products.</p>
+        <button class="btn-primary" id="registerCta">Get Started</button>
       </div>`;
     document.getElementById("registerCta").addEventListener("click", () => openStepper(null));
     return;
   }
 
-  const ratingText = profile.avg_rating ? `⭐ ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
-  const memberSince = profile.created_at ? profile.created_at.slice(0, 4) : "—";
+  const ratingText = profile.avg_rating ? `\u2b50 ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
+  const memberSince = profile.created_at ? profile.created_at.slice(0, 4) : "\u2014";
+  const servicesList = (profile.services || []).map(s => typeof s === "object" ? s.name : s).join(", ");
 
   container.innerHTML = `
-    <div class="profile-header-card">
-      ${avatarHtml(profile, 68)}
+    <div class="profile-hero">
+      ${avatarHtml(profile, 76)}
       <h2>${escapeHtml(profile.name)}</h2>
-      <p class="tagline">${escapeHtml(profile.services.join(", ")) || "No services yet"}</p>
+      <p class="tagline">${escapeHtml(servicesList) || "No services yet"}</p>
       <p class="rating-line">${ratingText}</p>
       <div class="stat-row">
-        <div class="stat"><b>${profile.services.length}</b><span>Services</span></div>
+        <div class="stat"><b>${(profile.services || []).length}</b><span>Services</span></div>
         <div class="stat"><b>${profile.rating_count}</b><span>Reviews</span></div>
-        <div class="stat"><b>${memberSince}</b><span>Member Since</span></div>
+        <div class="stat"><b>${memberSince}</b><span>Member</span></div>
       </div>
     </div>
+    ${profile.description ? `<div class="detail-section"><div class="detail-section-title">About</div><p style="font-size:14px;color:var(--text-muted);line-height:1.6;margin:0;">${escapeHtml(profile.description)}</p></div>` : ""}
     ${renderSocialPlatformsDisplay(profile)}
-    <div class="detail-list">
-      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}</span></div>
-      <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
-      <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
-      <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "—"}</span></div>
-      <div class="detail-row"><span class="label">Home address<span class="private-badge">Private</span></span><span class="value">${escapeHtml(profile.home_address) || "—"}</span></div>
+    <div class="detail-section">
+      <div class="detail-section-title">Contact</div>
+      <div class="detail-list">
+        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Home address<span class="private-badge">Private</span></span><span class="value">${escapeHtml(profile.home_address) || "\u2014"}</span></div>
+      </div>
     </div>
     <div class="menu-list">
-      <div class="menu-item" id="editListingBtn">Edit My Listing<span class="chevron">›</span></div>
-      <div class="menu-item danger" id="removeListingBtn">Remove My Listing<span class="chevron">›</span></div>
+      <div class="menu-item" id="editListingBtn">Edit My Listing<span class="chevron">\u203a</span></div>
+      <div class="menu-item danger" id="removeListingBtn">Remove My Listing<span class="chevron">\u203a</span></div>
     </div>`;
 
   document.getElementById("editListingBtn").addEventListener("click", () => openStepper(profile));
@@ -445,73 +406,166 @@ async function loadProfile() {
 }
 
 // ============================================================
-// ENTREPRENEUR DETAIL (public page — reached by tapping a search result)
+// ENTREPRENEUR DETAIL
 // ============================================================
 let detailReturnView = "explore";
+let detailEntrepreneurId = null;
+let detailIsFavorited = false;
 
 async function openDetail(entrepreneurId) {
   const activeView = document.querySelector(".view.active");
-  // Only remember where we came FROM if we're not already on the detail
-  // page — otherwise refreshing after a rating overwrites the return
-  // target with "detail" itself, which is exactly why Back stopped working.
   if (activeView && activeView.id !== "view-detail") {
     detailReturnView = activeView.id.replace("view-", "");
   }
+  detailEntrepreneurId = entrepreneurId;
 
   showView("detail");
   const container = document.getElementById("detailContent");
-  container.innerHTML = `<p class="hint" style="text-align:center;color:var(--text-muted);padding:40px 0;">Loading...</p>`;
+  container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:40px 0;">Loading...</p>`;
 
   const res = await fetch(`/api/entrepreneur/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`);
   if (!res.ok) {
-    container.innerHTML = emptyState("This listing couldn't be found — it may have been removed.");
+    container.innerHTML = emptyState("This listing couldn't be found.");
     return;
   }
   const profile = await res.json();
   const reviews = await apiGet(`/api/reviews/${entrepreneurId}`);
-  const ratingText = profile.avg_rating ? `⭐ ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
-  const phoneVerifiedBadge = "";
+  detailIsFavorited = profile.is_favorited || false;
 
-  const reviewsHtml = reviews.length
-    ? reviews.map((rev) => `
-        <div class="review-card">
-          <div class="review-head">
-            <b>${escapeHtml(rev.rater_name || "Anonymous")}</b>
-            <span class="review-stars">${"★".repeat(rev.score)}${"☆".repeat(5 - rev.score)}</span>
-          </div>
-          ${rev.comment ? `<p class="review-comment">${escapeHtml(rev.comment)}</p>` : ""}
-        </div>`).join("")
-    : `<p class="field-hint">No reviews yet — be the first to rate ${escapeHtml(profile.name)}.</p>`;
+  // Update fav button
+  const favBtn = document.getElementById("detailFavBtn");
+  favBtn.style.display = "flex";
+  updateFavButton();
+
+  const ratingText = profile.avg_rating ? `\u2b50 ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
+  const servicesList = (profile.services || []).map(s => typeof s === "object" ? s.name : s).join(", ");
+
+  // Cover image
+  let coverHtml = "";
+  if (profile.cover_base64) {
+    coverHtml = `<div style="width:100%;height:160px;border-radius:var(--radius-md);overflow:hidden;margin-bottom:16px;"><img src="data:image/jpeg;base64,${profile.cover_base64}" style="width:100%;height:100%;object-fit:cover;" /></div>`;
+  }
+
+  // Logo
+  let logoHtml = "";
+  if (profile.logo_base64) {
+    logoHtml = `<div style="width:56px;height:56px;border-radius:12px;overflow:hidden;margin:0 auto 10px;border:2px solid rgba(255,255,255,0.3);"><img src="data:image/jpeg;base64,${profile.logo_base64}" style="width:100%;height:100%;object-fit:cover;" /></div>`;
+  }
+
+  // Gallery
+  let galleryHtml = "";
+  if (profile.gallery && profile.gallery.length > 0) {
+    galleryHtml = `
+      <div class="detail-section">
+        <div class="detail-section-title">Gallery</div>
+        <div class="gallery-grid">${profile.gallery.map(img => `<img src="data:image/jpeg;base64,${img}" />`).join("")}</div>
+      </div>`;
+  }
+
+  // Services/Products
+  let servicesHtml = "";
+  if (profile.services && profile.services.length > 0) {
+    servicesHtml = `
+      <div class="detail-section">
+        <div class="detail-section-title">Services & Products</div>
+        <div class="services-list">${profile.services.map(s => {
+          const name = typeof s === "object" ? s.name : s;
+          const desc = typeof s === "object" ? s.description : "";
+          const price = typeof s === "object" ? s.price : 0;
+          return `
+            <div class="service-item">
+              <div class="service-item-info">
+                <div class="service-item-name">${escapeHtml(name)}</div>
+                ${desc ? `<div class="service-item-desc">${escapeHtml(desc)}</div>` : ""}
+              </div>
+              ${price > 0 ? `<div class="service-item-price">\u20a6${Number(price).toLocaleString()}</div>` : ""}
+            </div>`;
+        }).join("")}</div>
+      </div>`;
+  }
+
+  // Reviews
+  let reviewsHtml = reviews.length
+    ? reviews.map(rev => `
+      <div class="review-card">
+        <div class="review-head">
+          <b>${escapeHtml(rev.rater_name || "Anonymous")}</b>
+          <span class="review-stars">${"\u2605".repeat(rev.score)}${"\u2606".repeat(5 - rev.score)}</span>
+        </div>
+        ${rev.comment ? `<p class="review-comment">${escapeHtml(rev.comment)}</p>` : ""}
+        ${rev.created_at ? `<div class="review-date">${escapeHtml(rev.created_at.slice(0, 10))}</div>` : ""}
+      </div>`).join("")
+    : `<p class="field-hint">No reviews yet \u2014 be the first to rate ${escapeHtml(profile.name)}.</p>`;
 
   container.innerHTML = `
-    <div class="profile-header-card">
-      ${avatarHtml(profile, 68)}
+    ${coverHtml}
+    <div class="profile-hero">
+      ${logoHtml || avatarHtml(profile, 76)}
       <h2>${escapeHtml(profile.name)}</h2>
-      <p class="tagline">${escapeHtml(profile.services.join(", ")) || ""}</p>
+      <p class="tagline">${escapeHtml(servicesList) || ""}</p>
       <p class="rating-line">${ratingText}</p>
     </div>
+    ${profile.description ? `<div class="detail-section"><div class="detail-section-title">About</div><p style="font-size:14px;color:var(--text-muted);line-height:1.6;margin:0;">${escapeHtml(profile.description)}</p></div>` : ""}
+    ${servicesHtml}
+    ${galleryHtml}
     ${renderSocialPlatformsDisplay(profile)}
-    <div class="detail-list">
-      <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "—"}${phoneVerifiedBadge}</span></div>
-      <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "—"}</span></div>
-      <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "—"}</span></div>
-      <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "—"}</span></div>
+    <div class="detail-section">
+      <div class="detail-section-title">Contact</div>
+      <div class="contact-btns">
+        ${profile.phone ? `<button class="contact-btn contact-btn-call" onclick="window.location.href='tel:${escapeHtml(profile.phone)}'">Call</button>` : ""}
+        ${profile.phone ? `<button class="contact-btn contact-btn-message" onclick="window.location.href='https://wa.me/${escapeHtml(profile.phone?.replace(/[^0-9]/g, ''))}'">Message</button>` : ""}
+        <button class="contact-btn contact-btn-share" id="shareBtn">Share</button>
+      </div>
+      <div class="detail-list">
+        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
+      </div>
     </div>
     <button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>
-
-    <div class="section-head" style="margin-top:22px;"><h2>Reviews</h2></div>
-    <div class="reviews-list">${reviewsHtml}</div>`;
+    <div class="detail-section" style="margin-top:22px;">
+      <div class="detail-section-title">Reviews</div>
+      <div class="reviews-list">${reviewsHtml}</div>
+    </div>`;
 
   document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
+  document.getElementById("shareBtn").addEventListener("click", () => {
+    if (tg.shareUrl) {
+      tg.shareUrl(window.location.href);
+    } else {
+      navigator.clipboard?.writeText(window.location.href);
+      tg.showAlert?.("Link copied!");
+    }
+  });
 }
 
-// ---- Custom rating modal ----
-// Not using tg.showPopup here: Telegram caps popups at 3 buttons, and we
-// need 5 (one per star) plus Cancel — that's exactly why the old version
-// silently did nothing. A plain in-page modal has no such limit.
+function updateFavButton() {
+  const favBtn = document.getElementById("detailFavBtn");
+  if (detailIsFavorited) {
+    favBtn.classList.add("fav-active");
+    favBtn.querySelector("svg").setAttribute("fill", "currentColor");
+  } else {
+    favBtn.classList.remove("fav-active");
+    favBtn.querySelector("svg").setAttribute("fill", "none");
+  }
+}
+
+document.getElementById("detailFavBtn").addEventListener("click", async () => {
+  if (!detailEntrepreneurId) return;
+  if (detailIsFavorited) {
+    await apiPost("/api/favorites/remove", { initData: tg.initData, entrepreneur_id: detailEntrepreneurId });
+    detailIsFavorited = false;
+  } else {
+    await apiPost("/api/favorites/add", { initData: tg.initData, entrepreneur_id: detailEntrepreneurId });
+    detailIsFavorited = true;
+  }
+  updateFavButton();
+});
+
+// ---- Rating Modal ----
 function openRatingModal(entrepreneurId, name) {
   let selectedScore = 0;
-
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
@@ -519,19 +573,19 @@ function openRatingModal(entrepreneurId, name) {
       <h3>Rate ${escapeHtml(name)}</h3>
       <p class="field-hint">Tap a star, then add a comment if you'd like.</p>
       <div class="star-row">
-        ${[1, 2, 3, 4, 5].map((n) => `<button class="star-btn" data-score="${n}">★</button>`).join("")}
+        ${[1,2,3,4,5].map(n => `<button class="star-btn" data-score="${n}">\u2605</button>`).join("")}
       </div>
-      <textarea id="ratingComment" rows="3" placeholder="Optional — share what your experience was like"></textarea>
+      <textarea id="ratingComment" rows="3" placeholder="Optional — share your experience"></textarea>
       <button class="btn-primary" id="ratingSubmitBtn">Submit Rating</button>
       <button class="btn-secondary" id="ratingCancelBtn">Cancel</button>
     </div>`;
   document.body.appendChild(overlay);
 
   const starButtons = overlay.querySelectorAll(".star-btn");
-  starButtons.forEach((btn) => {
+  starButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       selectedScore = Number(btn.dataset.score);
-      starButtons.forEach((b) => b.classList.toggle("selected", Number(b.dataset.score) <= selectedScore));
+      starButtons.forEach(b => b.classList.toggle("selected", Number(b.dataset.score) <= selectedScore));
     });
   });
 
@@ -543,8 +597,7 @@ function openRatingModal(entrepreneurId, name) {
     const comment = document.getElementById("ratingComment").value.trim();
     overlay.remove();
     const { ok } = await apiPost("/api/rate", { initData: tg.initData, entrepreneur_id: entrepreneurId, score: selectedScore, comment });
-    tg.showAlert ? tg.showAlert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.")
-                 : alert(ok ? "Thanks for rating!" : "Something went wrong submitting your rating.");
+    tg.showAlert ? tg.showAlert(ok ? "Thanks for rating!" : "Something went wrong.") : alert(ok ? "Thanks!" : "Error.");
     if (ok) openDetail(entrepreneurId);
   });
 
@@ -555,19 +608,22 @@ function openRatingModal(entrepreneurId, name) {
 document.getElementById("detailBack").addEventListener("click", () => showView(detailReturnView));
 
 // ============================================================
-// STEPPER (5 steps: Basic Info, Services, Contact, Photo, Verification)
+// STEPPER (6 steps)
 // ============================================================
 let stepperTags = [];
 let currentStep = 1;
 let uploadedPhotoBase64 = null;
-let verifiedPhoneNumber = null;   // set once /api/check_phone confirms verification
+let uploadedLogoBase64 = null;
+let uploadedCoverBase64 = null;
+let verifiedPhoneNumber = null;
 let phonePollTimer = null;
-const TOTAL_STEPS = 5;
+let selectedOfferType = "service";
+const TOTAL_STEPS = 6;
 
 const SOCIAL_PLATFORMS = [
   { id: "instagram", label: "Instagram", placeholder: "@username",
     svg: `<svg viewBox="0 0 24 24" fill="#E4405F"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>` },
-  { id: "twitter", label: "X (Twitter)", placeholder: "@username",
+  { id: "twitter", label: "X", placeholder: "@username",
     svg: `<svg viewBox="0 0 24 24" fill="#000000"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>` },
   { id: "facebook", label: "Facebook", placeholder: "facebook.com/username",
     svg: `<svg viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>` },
@@ -578,28 +634,25 @@ const SOCIAL_PLATFORMS = [
   { id: "youtube", label: "YouTube", placeholder: "@channel",
     svg: `<svg viewBox="0 0 24 24" fill="#FF0000"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>` },
   { id: "snapchat", label: "Snapchat", placeholder: "username",
-    svg: `<svg viewBox="0 0 24 24" fill="#FFFC00"><path d="M12.206.793c.99 0 4.347.276 5.93 3.821.529 1.193.403 3.219.299 4.847l-.003.06c-.012.18-.022.345-.03.51.075.045.203.09.401.09.3-.016.659-.12.922-.214.094-.04.199-.06.3-.06.337 0 .596.181.731.394.09.136.15.3.152.475 0 .195-.055.39-.164.557-.352.552-.956.79-1.457.914-.17.042-.34.075-.492.1-.09.015-.18.031-.27.047l-.06.012c-.032.009-.062.021-.09.033-.015.006-.03.014-.045.021-.12.06-.21.105-.33.15-.39.135-.957.24-1.573.342-.24.042-.48.075-.72.105-.12.015-.24.03-.36.045-.06.009-.12.018-.18.026-.015.003-.03.006-.045.009-.12.025-.24.045-.36.06-.36.055-.72.09-1.2.09s-.84-.035-1.2-.09c-.12-.015-.24-.035-.36-.06-.015-.003-.03-.006-.045-.009-.06-.009-.12-.018-.18-.026-.12-.015-.24-.03-.36-.045-.24-.03-.48-.063-.72-.105-.615-.103-1.183-.208-1.573-.342-.12-.045-.21-.09-.33-.15-.028-.012-.058-.024-.09-.033l-.06-.012c-.152-.025-.322-.058-.492-.1-.5-.123-1.105-.362-1.457-.914-.109-.167-.164-.362-.164-.557 0-.175.062-.34.152-.475.135-.213.394-.394.731-.394.1 0 .206.02.3.06.263.094.622.198.922.214.198 0 .326-.045.401-.09-.008-.165-.018-.33-.03-.51l-.003-.06c-.104-1.628-.23-3.654.299-4.847C7.859 1.069 11.216.793 12.206.793zM9.62 13.019c.018.292.018.584.018.874 0 1.537-.646 3.18-2.103 3.814-.138.06-.285.105-.39.15-.33.135-.522.3-.6.465-.06.135-.075.27-.03.39.165.435.69.69 1.14.81.09.022.18.042.27.057.09.015.18.03.255.037.285.03.495.24.57.495.03.105.045.225.045.345 0 .18-.06.345-.165.465-.195.225-.51.36-.855.42-.09.015-.18.03-.255.045-.3.055-.48.27-.555.495-.03.105-.06.21-.06.33 0 .195.09.375.24.495.21.15.48.24.75.285.105.015.21.03.3.045.135.02.255.045.36.075.36.105.585.435.57.795-.015.36-.225.66-.51.795-.06.03-.12.06-.195.075-.375.075-.75.15-1.155.21-.135.015-.27.045-.405.06-.06.009-.12.018-.18.026-.015.003-.03.006-.045.009-.27.045-.48.255-.51.525-.015.135-.015.27-.015.405 0 .135.015.27.045.405.09.42.42.72.855.75.135.009.27.015.405.015.39 0 .78-.06 1.155-.165.15-.045.3-.075.435-.12.36-.12.63-.39.75-.75.06-.18.09-.36.09-.555 0-.27-.06-.525-.18-.75-.135-.24-.33-.42-.555-.525-.18-.09-.375-.15-.57-.195-.06-.015-.12-.03-.18-.045-.075-.015-.15-.03-.21-.045-.15-.03-.285-.075-.375-.15-.165-.135-.24-.33-.24-.54 0-.06.015-.12.03-.18.045-.18.15-.33.285-.435.12-.105.27-.165.42-.21.135-.045.27-.075.39-.12.18-.06.33-.15.435-.3.09-.135.135-.3.135-.465 0-.06-.015-.12-.03-.18-.06-.18-.18-.33-.33-.42-.12-.075-.255-.12-.39-.15-.135-.03-.27-.06-.39-.105-.18-.06-.315-.18-.39-.345-.06-.135-.09-.3-.09-.465 0-.18.06-.345.165-.48.135-.18.33-.3.54-.375.18-.06.36-.105.54-.15.18-.045.345-.105.465-.195.135-.105.21-.255.21-.42 0-.06-.015-.12-.03-.18-.06-.18-.18-.33-.345-.405-.12-.06-.255-.09-.39-.12-.135-.03-.27-.06-.375-.12-.18-.09-.3-.24-.33-.435-.015-.09-.015-.18-.015-.27 0-.18.045-.345.135-.495.105-.18.27-.315.465-.39.15-.06.315-.105.48-.15.18-.045.345-.105.465-.21.12-.105.18-.255.18-.42 0-.045-.015-.09-.03-.135-.06-.18-.18-.33-.36-.42-.12-.06-.255-.09-.39-.12-.135-.03-.27-.06-.375-.12-.18-.09-.3-.24-.33-.435-.015-.09-.015-.18-.015-.27 0-.18.045-.345.135-.495.105-.18.27-.315.465-.39.15-.06.315-.105.48-.15.18-.045.345-.105.465-.21.12-.105.18-.255.18-.42 0-.06-.015-.12-.045-.18-.075-.165-.225-.285-.405-.33-.12-.03-.24-.045-.36-.06-.12-.015-.24-.03-.345-.06-.18-.045-.315-.15-.375-.3-.045-.105-.06-.225-.06-.345 0-.18.06-.345.165-.48.135-.18.33-.3.54-.375.18-.06.36-.105.54-.15.18-.045.345-.105.465-.195.135-.105.21-.255.21-.42z"/></svg>` },
+    svg: `<svg viewBox="0 0 24 24" fill="#FFFC00"><circle cx="12" cy="12" r="10" fill="#FFFC00" stroke="#000" stroke-width="0.5"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="#000">S</text></svg>` },
   { id: "pinterest", label: "Pinterest", placeholder: "pinterest.com/username",
     svg: `<svg viewBox="0 0 24 24" fill="#BD081C"><path d="M12 0C5.373 0 0 5.372 0 12c0 5.084 3.163 9.426 7.627 11.174-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 01.083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12 24c6.627 0 12-5.373 12-12 0-6.628-5.373-12-12-12z"/></svg>` },
-  { id: "website", label: "Other Website", placeholder: "https://...",
+  { id: "website", label: "Website", placeholder: "https://...",
     svg: `<svg viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>` },
 ];
 
-let socialPlatforms = []; // Array of { platform: "instagram", handle: "@janedoe" }
+let socialPlatforms = [];
 
 function renderSocialPlatforms() {
   const container = document.getElementById("socialPlatformsList");
   if (!container) return;
-
   container.innerHTML = socialPlatforms.map((sp, i) => {
     const platDef = SOCIAL_PLATFORMS.find(p => p.id === sp.platform) || SOCIAL_PLATFORMS[0];
     return `
       <div class="social-platform-row" data-index="${i}">
         <div class="social-platform-select-wrap">
           <select class="social-platform-select" data-index="${i}">
-            ${SOCIAL_PLATFORMS.map(p =>
-              `<option value="${p.id}" ${p.id === sp.platform ? "selected" : ""}>${p.label}</option>`
-            ).join("")}
+            ${SOCIAL_PLATFORMS.map(p => `<option value="${p.id}" ${p.id === sp.platform ? "selected" : ""}>${p.label}</option>`).join("")}
           </select>
         </div>
         <input type="text" class="social-platform-handle" data-index="${i}"
@@ -609,29 +662,23 @@ function renderSocialPlatforms() {
       </div>`;
   }).join("");
 
-  // Bind events
   container.querySelectorAll(".social-platform-select").forEach(sel => {
     sel.addEventListener("change", (e) => {
       const idx = Number(e.target.dataset.index);
       socialPlatforms[idx].platform = e.target.value;
-      // Update placeholder
       const platDef = SOCIAL_PLATFORMS.find(p => p.id === e.target.value);
       const handleInput = container.querySelector(`.social-platform-handle[data-index="${idx}"]`);
       if (handleInput && platDef) handleInput.placeholder = platDef.placeholder;
     });
   });
-
   container.querySelectorAll(".social-platform-handle").forEach(input => {
     input.addEventListener("input", (e) => {
-      const idx = Number(e.target.dataset.index);
-      socialPlatforms[idx].handle = e.target.value;
+      socialPlatforms[Number(e.target.dataset.index)].handle = e.target.value;
     });
   });
-
   container.querySelectorAll(".social-platform-remove").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      const idx = Number(e.target.dataset.index);
-      socialPlatforms.splice(idx, 1);
+    btn.addEventListener("click", () => {
+      socialPlatforms.splice(Number(btn.dataset.index), 1);
       renderSocialPlatforms();
     });
   });
@@ -639,64 +686,69 @@ function renderSocialPlatforms() {
 
 function addSocialPlatform() {
   if (socialPlatforms.length >= 9) {
-    tg.showAlert ? tg.showAlert("You can add up to 9 social accounts.") : alert("You can add up to 9 social accounts.");
+    tg.showAlert?.("Maximum 9 social accounts.");
     return;
   }
-  // Pick the next unused platform, or default to instagram
   const usedPlatforms = socialPlatforms.map(sp => sp.platform);
   const nextPlat = SOCIAL_PLATFORMS.find(p => !usedPlatforms.includes(p.id)) || SOCIAL_PLATFORMS[0];
   socialPlatforms.push({ platform: nextPlat.id, handle: "" });
   renderSocialPlatforms();
-  // Focus the new handle input
   const handles = document.querySelectorAll(".social-platform-handle");
   if (handles.length) handles[handles.length - 1].focus();
 }
 
 function openStepper(existingProfile) {
   currentStep = 1;
-  stepperTags = existingProfile ? [...existingProfile.services] : [];
+  stepperTags = existingProfile ? [...(existingProfile.services || []).map(s => typeof s === "object" ? s.name : s)] : [];
   uploadedPhotoBase64 = null;
+  uploadedLogoBase64 = null;
+  uploadedCoverBase64 = null;
   verifiedPhoneNumber = existingProfile?.phone_verified ? existingProfile.phone : null;
+  selectedOfferType = "service";
 
   document.getElementById("stepName").value = existingProfile?.name || "";
   document.getElementById("stepEmail").value = existingProfile?.email || "";
   document.getElementById("stepBusinessAddress").value = existingProfile?.business_address || "";
   document.getElementById("stepWebsite").value = existingProfile?.website || "";
   document.getElementById("stepHomeAddress").value = existingProfile?.home_address || "";
+  document.getElementById("stepDescription").value = existingProfile?.description || "";
 
-  // Load social platforms from existing profile
   socialPlatforms = [];
   if (existingProfile?.social_platforms) {
     try {
       const parsed = typeof existingProfile.social_platforms === "string"
-        ? JSON.parse(existingProfile.social_platforms)
-        : existingProfile.social_platforms;
+        ? JSON.parse(existingProfile.social_platforms) : existingProfile.social_platforms;
       if (Array.isArray(parsed)) socialPlatforms = parsed;
-    } catch(e) { /* ignore parse errors */ }
-  }
-  // Backwards compat: if no social_platforms but there's old socials text, show it
-  if (!socialPlatforms.length && existingProfile?.socials) {
-    socialPlatforms = [{ platform: "website", handle: existingProfile.socials }];
+    } catch(e) {}
   }
   renderSocialPlatforms();
 
   refreshPhoneVerifiedUI();
-  checkPhoneVerification(); // in case they verified in an earlier session
+  checkPhoneVerification();
 
-  const previewImg = document.getElementById("photoPreviewImg");
-  const placeholderIcon = document.getElementById("photoPlaceholderIcon");
+  // Reset photo previews
+  document.getElementById("photoPreviewImg").style.display = "none";
+  document.getElementById("photoPlaceholderIcon").style.display = "block";
+  document.getElementById("photoUploadLabel").textContent = "Upload a photo";
+  document.getElementById("logoPreviewImg").style.display = "none";
+  document.getElementById("logoPlaceholderIcon").style.display = "block";
+  document.getElementById("logoUploadLabel").textContent = "Upload logo";
+  document.getElementById("coverPreviewImg").style.display = "none";
+  document.getElementById("coverPlaceholderIcon").style.display = "block";
+  document.getElementById("coverUploadLabel").textContent = "Upload cover image";
+
   if (existingProfile?.id && (existingProfile.photo_base64 || existingProfile.photo_file_id)) {
-    previewImg.src = photoUrl(existingProfile.id);
-    previewImg.style.display = "block";
-    placeholderIcon.style.display = "none";
-    document.getElementById("photoUploadLabel").textContent = "Tap to change photo";
-  } else {
-    previewImg.style.display = "none";
-    placeholderIcon.style.display = "block";
-    document.getElementById("photoUploadLabel").textContent = "Upload a photo of yourself or your business";
+    document.getElementById("photoPreviewImg").src = photoUrl(existingProfile.id);
+    document.getElementById("photoPreviewImg").style.display = "block";
+    document.getElementById("photoPlaceholderIcon").style.display = "none";
+    document.getElementById("photoUploadLabel").textContent = "Tap to change";
   }
 
-  document.getElementById("stepperTitle").textContent = existingProfile ? "Edit Your Listing" : "List Your Services";
+  document.getElementById("stepperTitle").textContent = existingProfile ? "Edit Listing" : "Register";
+
+  // Reset offer type selection
+  document.querySelectorAll(".offer-type-card").forEach(c => c.classList.remove("selected"));
+
   renderTags();
   goToStep(1);
   showView("stepper");
@@ -704,8 +756,8 @@ function openStepper(existingProfile) {
 
 function renderTags() {
   const container = document.getElementById("serviceTags");
-  container.innerHTML = stepperTags.map((t, i) => `<span class="tag-pill">${escapeHtml(t)}<button data-remove="${i}">×</button></span>`).join("");
-  container.querySelectorAll("[data-remove]").forEach((btn) => {
+  container.innerHTML = stepperTags.map((t, i) => `<span class="tag-pill">${escapeHtml(t)}<button data-remove="${i}">\u00d7</button></span>`).join("");
+  container.querySelectorAll("[data-remove]").forEach(btn => {
     btn.addEventListener("click", () => {
       stepperTags.splice(Number(btn.dataset.remove), 1);
       renderTags();
@@ -713,18 +765,9 @@ function renderTags() {
   });
 }
 
-// ---- Phone verification: real gating, not cosmetic ----
-// Telegram delivers the verified number to the BOT chat (a message),
-// not directly back to this webpage — so after requesting it, we poll
-// our own backend every 2s until it shows up, then unlock. This is what
-// makes "you can't continue without verifying" actually enforced rather
-// than just a label, since the Next button stays disabled the whole time.
-// Three visual states: button (not started) -> waiting spinner (polling)
-// -> circular checkmark (confirmed). Only one is ever visible at a time.
+// ---- Phone verification ----
 function refreshPhoneVerifiedUI(state) {
-  // state: "idle" | "waiting" | "verified" — inferred if not passed
   if (!state) state = verifiedPhoneNumber ? "verified" : "idle";
-
   const display = document.getElementById("phoneVerifiedDisplay");
   const waiting = document.getElementById("phoneWaitingState");
   const btn = document.getElementById("verifyPhoneBtn");
@@ -737,11 +780,11 @@ function refreshPhoneVerifiedUI(state) {
 
   if (state === "verified") {
     numberSpan.textContent = verifiedPhoneNumber;
-    hint.textContent = "Verified — you're all set for this step.";
+    hint.textContent = "Verified \u2014 you're all set.";
   } else if (state === "waiting") {
     hint.textContent = "";
   } else {
-    hint.textContent = "Tap the button and approve the prompt Telegram shows you. That's it — no other steps needed.";
+    hint.textContent = "Tap the button and approve the prompt. No other steps needed.";
   }
 }
 
@@ -757,8 +800,7 @@ async function checkPhoneVerification() {
 
 document.getElementById("verifyPhoneBtn").addEventListener("click", () => {
   if (typeof tg.requestContact !== "function") {
-    const msg = "Your Telegram app version doesn't support this — please update Telegram to register.";
-    tg.showAlert ? tg.showAlert(msg) : alert(msg);
+    tg.showAlert?.("Please update Telegram to register.");
     return;
   }
   tg.requestContact((shared) => {
@@ -769,12 +811,12 @@ document.getElementById("verifyPhoneBtn").addEventListener("click", () => {
     phonePollTimer = setInterval(async () => {
       attempts++;
       const ok = await checkPhoneVerification();
-      if (ok || attempts > 15) { // ~30s timeout
+      if (ok || attempts > 15) {
         clearInterval(phonePollTimer);
         phonePollTimer = null;
         if (!ok) {
           refreshPhoneVerifiedUI("idle");
-          document.getElementById("verifyPhoneHint").textContent = "Still waiting — check your chat with the bot for a confirmation message, then tap Verify again.";
+          document.getElementById("verifyPhoneHint").textContent = "Still waiting \u2014 check your bot chat, then try again.";
         }
       }
     }, 2000);
@@ -785,82 +827,89 @@ document.getElementById("serviceEntry").addEventListener("keydown", (e) => {
   if (e.key === "Enter" || e.key === ",") {
     e.preventDefault();
     const value = e.target.value.trim().replace(/,$/, "");
-    if (value) {
-      stepperTags.push(value);
-      renderTags();
-    }
+    if (value) { stepperTags.push(value); renderTags(); }
     e.target.value = "";
   }
 });
 
-// ---- Photo upload: pick a file, resize/compress it client-side, preview it ----
-document.getElementById("photoUploadZone").addEventListener("click", () => document.getElementById("photoInput").click());
-
-document.getElementById("photoInput").addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    const img = new Image();
-    img.onload = () => {
-      // Resize down to a max width so the base64 payload stays small
-      const MAX_WIDTH = 640;
-      const scale = Math.min(1, MAX_WIDTH / img.width);
-      const canvas = document.createElement("canvas");
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      uploadedPhotoBase64 = canvas.toDataURL("image/jpeg", 0.75);
-
-      const previewImg = document.getElementById("photoPreviewImg");
-      previewImg.src = uploadedPhotoBase64;
-      previewImg.style.display = "block";
-      document.getElementById("photoPlaceholderIcon").style.display = "none";
-      document.getElementById("photoUploadLabel").textContent = "Tap to change photo";
+// ---- Photo uploads ----
+function setupPhotoUpload(zoneId, inputId, previewImgId, placeholderId, labelId, stateKey) {
+  document.getElementById(zoneId).addEventListener("click", () => document.getElementById(inputId).click());
+  document.getElementById(inputId).addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_WIDTH = stateKey === "cover" ? 800 : 640;
+        const scale = Math.min(1, MAX_WIDTH / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        const base64 = canvas.toDataURL("image/jpeg", 0.75);
+        if (stateKey === "photo") uploadedPhotoBase64 = base64;
+        if (stateKey === "logo") uploadedLogoBase64 = base64;
+        if (stateKey === "cover") uploadedCoverBase64 = base64;
+        document.getElementById(previewImgId).src = base64;
+        document.getElementById(previewImgId).style.display = "block";
+        document.getElementById(placeholderId).style.display = "none";
+        document.getElementById(labelId).textContent = "Tap to change";
+      };
+      img.src = event.target.result;
     };
-    img.src = event.target.result;
-  };
-  reader.readAsDataURL(file);
-});
+    reader.readAsDataURL(file);
+  });
+}
+setupPhotoUpload("photoUploadZone", "photoInput", "photoPreviewImg", "photoPlaceholderIcon", "photoUploadLabel", "photo");
+setupPhotoUpload("logoUploadZone", "logoInput", "logoPreviewImg", "logoPlaceholderIcon", "logoUploadLabel", "logo");
+setupPhotoUpload("coverUploadZone", "coverInput", "coverPreviewImg", "coverPlaceholderIcon", "coverUploadLabel", "cover");
 
 // Social platforms: add button
 document.getElementById("addSocialPlatformBtn").addEventListener("click", addSocialPlatform);
 
 function goToStep(step) {
   currentStep = step;
-  document.querySelectorAll(".step-panel").forEach((p) => p.classList.remove("active"));
+  document.querySelectorAll(".step-panel").forEach(p => p.classList.remove("active"));
   document.querySelector(`.step-panel[data-step-panel="${step}"]`).classList.add("active");
 
-  document.querySelectorAll(".dot").forEach((dot) => {
-    const dotStep = Number(dot.dataset.step);
-    dot.classList.toggle("active", dotStep === step);
-    dot.classList.toggle("done", dotStep < step);
-  });
-
+  const progress = ((step - 1) / (TOTAL_STEPS - 1)) * 100;
+  document.getElementById("progressFill").style.width = `${progress}%`;
   document.getElementById("stepLabel").textContent = `Step ${step} of ${TOTAL_STEPS}`;
   document.getElementById("stepBackBtn").style.visibility = step === 1 ? "hidden" : "visible";
   document.getElementById("stepNextBtn").textContent = step === TOTAL_STEPS ? "Submit" : "Next";
 
-  if (step === 5) {
+  // Update step 3 title based on offer type
+  if (step === 3) {
+    const title = document.getElementById("step3Title");
+    const productFields = document.getElementById("productFields");
+    if (selectedOfferType === "product") {
+      title.innerHTML = 'Your Products <span class="req">*required</span>';
+      productFields.style.display = "block";
+    } else if (selectedOfferType === "both") {
+      title.innerHTML = 'Your Services & Products <span class="req">*required</span>';
+      productFields.style.display = "block";
+    } else {
+      title.innerHTML = 'Your Services <span class="req">*required</span>';
+      productFields.style.display = "none";
+    }
+  }
+
+  // Step 6: home address requirement
+  if (step === 6) {
     const hasBusinessAddress = document.getElementById("stepBusinessAddress").value.trim().length > 0;
     const badge = document.getElementById("homeAddressStepBadge");
     const labelBadge = document.getElementById("homeAddressLabelBadge");
     const explainer = document.getElementById("homeAddressExplainer");
     if (hasBusinessAddress) {
-      badge.textContent = "optional";
-      badge.className = "opt";
-      labelBadge.textContent = "optional";
-      labelBadge.className = "opt";
-      explainer.textContent = "You've already added a business address, so this is optional — only fill it in if you'd like extra verification on file.";
+      badge.textContent = "optional"; badge.className = "opt";
+      labelBadge.textContent = "optional"; labelBadge.className = "opt";
+      explainer.textContent = "You already added a business address \u2014 this is optional.";
     } else {
-      badge.textContent = "*required";
-      badge.className = "req";
-      labelBadge.textContent = "*required";
-      labelBadge.className = "req";
-      explainer.textContent = "You didn't add a business address, so we need this instead — it's how we confirm real entrepreneurs for work-from-home services.";
+      badge.textContent = "*required"; badge.className = "req";
+      labelBadge.textContent = "*required"; labelBadge.className = "req";
+      explainer.textContent = "We need this for verification since you didn't add a business address.";
     }
   }
 }
@@ -869,41 +918,53 @@ document.getElementById("stepBackBtn").addEventListener("click", () => {
   if (currentStep > 1) goToStep(currentStep - 1);
 });
 
+// Offer type selection
+document.querySelectorAll(".offer-type-card").forEach(card => {
+  card.addEventListener("click", () => {
+    document.querySelectorAll(".offer-type-card").forEach(c => c.classList.remove("selected"));
+    card.classList.add("selected");
+    selectedOfferType = card.dataset.offer;
+  });
+});
+
 document.getElementById("stepNextBtn").addEventListener("click", async () => {
   if (currentStep === 1) {
-    const name = document.getElementById("stepName").value.trim();
-    const email = document.getElementById("stepEmail").value.trim();
-    if (!name) return tg.showAlert("Please enter your name.");
-    if (!verifiedPhoneNumber) {
-      // Double-check with the backend in case verification landed while they
-      // weren't polling (e.g. they verified, closed the app, reopened later).
-      const justVerified = await checkPhoneVerification();
-      if (!justVerified) return tg.showAlert("Please verify your phone with Telegram before continuing.");
-    }
-    if (!email.includes("@") || !email.split("@").pop().includes(".")) return tg.showAlert("Please enter a valid email.");
+    if (!selectedOfferType) return tg.showAlert("Please select what you offer.");
     goToStep(2);
     return;
   }
   if (currentStep === 2) {
-    if (!stepperTags.length) return tg.showAlert("Add at least one service.");
+    const name = document.getElementById("stepName").value.trim();
+    const email = document.getElementById("stepEmail").value.trim();
+    if (!name) return tg.showAlert("Please enter your name.");
+    if (!verifiedPhoneNumber) {
+      const justVerified = await checkPhoneVerification();
+      if (!justVerified) return tg.showAlert("Please verify your phone first.");
+    }
+    if (!email.includes("@") || !email.split("@").pop().includes(".")) return tg.showAlert("Please enter a valid email.");
     goToStep(3);
     return;
   }
   if (currentStep === 3) {
-    goToStep(4); // all fields on this step are optional
+    if (!stepperTags.length) return tg.showAlert("Add at least one service or product.");
+    goToStep(4);
     return;
   }
   if (currentStep === 4) {
-    if (!uploadedPhotoBase64 && !currentProfile?.id) return tg.showAlert("Please upload a photo.");
     goToStep(5);
     return;
   }
+  if (currentStep === 5) {
+    if (!uploadedPhotoBase64 && !currentProfile?.id) return tg.showAlert("Please upload a photo.");
+    goToStep(6);
+    return;
+  }
 
-  // Step 5 -> submit
+  // Step 6 -> submit
   const homeAddress = document.getElementById("stepHomeAddress").value.trim();
   const businessAddress = document.getElementById("stepBusinessAddress").value.trim();
   if (!homeAddress && !businessAddress) {
-    return tg.showAlert("Add a business address, or a home address if you work from home — we need at least one.");
+    return tg.showAlert("Add a business address, or a home address if you work from home.");
   }
 
   const payload = {
@@ -915,32 +976,29 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
     business_address: businessAddress,
     website: document.getElementById("stepWebsite").value.trim(),
     home_address: homeAddress,
-    // Note: phone is deliberately NOT sent here — the backend always uses
-    // whatever's in phone_verifications for this Telegram user, so there's
-    // no path where an edited/fake number could sneak into the payload.
+    description: document.getElementById("stepDescription").value.trim(),
+    business_type: selectedOfferType,
   };
-  if (uploadedPhotoBase64) {
-    payload.photo_base64 = uploadedPhotoBase64;
-  } else if (currentProfile?.id) {
-    payload.keep_existing_photo = true; // editing without re-uploading a photo
-  }
+  if (uploadedPhotoBase64) payload.photo_base64 = uploadedPhotoBase64;
+  else if (currentProfile?.id) payload.keep_existing_photo = true;
+  if (uploadedLogoBase64) payload.logo_base64 = uploadedLogoBase64;
+  if (uploadedCoverBase64) payload.cover_base64 = uploadedCoverBase64;
 
   const { ok, data } = await apiPost("/api/register", payload);
-
   if (ok) {
     showView("success");
   } else if (data?.error === "phone_not_verified") {
-    tg.showAlert("Your phone verification expired or wasn't found — please verify again on Step 1.");
-    goToStep(1);
+    tg.showAlert("Phone verification expired \u2014 please verify again.");
+    goToStep(2);
   } else {
-    tg.showAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong. Please try again.");
+    tg.showAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong.");
   }
 });
 
 document.getElementById("stepperBack").addEventListener("click", () => showView("profile"));
 
 // ============================================================
-// Theme: subtle dark-mode support, palette otherwise stays fixed
+// Theme
 // ============================================================
 function applyTelegramTheme() {
   if (tg.colorScheme === "dark") {
@@ -950,12 +1008,8 @@ function applyTelegramTheme() {
     document.documentElement.style.setProperty("--text-muted", "#9098B1");
     document.documentElement.style.setProperty("--border", "#2A2E3A");
     document.documentElement.style.setProperty("--secondary-soft", "#123531");
-    // Deliberately NOT theming --input-text or form field backgrounds here.
-    // Telegram's in-app browser has been unreliable about matching its
-    // reported color scheme to what's actually rendered, which is exactly
-    // what caused the grey/invisible text bug. Form fields now always
-    // stay white-background/black-text (set in style.css), independent
-    // of theme detection, so they can't break this way again.
+    document.documentElement.style.setProperty("--accent-soft", "#3D2E0A");
+    document.documentElement.style.setProperty("--danger-soft", "#3D1515");
   }
 }
 applyTelegramTheme();
@@ -964,10 +1018,6 @@ tg.onEvent("themeChanged", applyTelegramTheme);
 // ============================================================
 // ADMIN PANEL
 // ============================================================
-// Admins are configured on the bot side (ADMIN_IDS env var / admins.txt),
-// same list used for the bot's /stats, /broadcast, /forceremove commands.
-// This just gives admins a visual alternative to typing those commands.
-
 async function checkAdminAccess() {
   const res = await apiGet(`/api/admin/check?initData=${encodeURIComponent(tg.initData)}`);
   if (res.is_admin) {
@@ -978,7 +1028,7 @@ async function checkAdminAccess() {
 async function loadAdminPanel() {
   const statsRes = await fetch(`/api/admin/stats?initData=${encodeURIComponent(tg.initData)}`);
   if (statsRes.status === 403) {
-    document.getElementById("adminStats").innerHTML = emptyState("You don't have admin access.");
+    document.getElementById("adminStats").innerHTML = emptyState("No admin access.");
     return;
   }
   const stats = await statsRes.json();
@@ -986,7 +1036,6 @@ async function loadAdminPanel() {
     <div class="stat-card"><b>${stats.entrepreneurs}</b><span>Entrepreneurs</span></div>
     <div class="stat-card"><b>${stats.services}</b><span>Services</span></div>
     <div class="stat-card"><b>${stats.ratings}</b><span>Ratings</span></div>`;
-
   await refreshAdminList();
 }
 
@@ -995,53 +1044,41 @@ async function refreshAdminList() {
   const data = await res.json();
   if (!res.ok) return;
   document.getElementById("adminListDisplay").innerHTML =
-    `<b>Root (Render):</b> ${data.root_admins.join(", ") || "none"}<br>` +
-    `<b>Added via app/bot:</b> ${data.added_admins.join(", ") || "none"}`;
+    `<b>Root:</b> ${data.root_admins.join(", ") || "none"}<br><b>Added:</b> ${data.added_admins.join(", ") || "none"}`;
 }
 
 document.getElementById("adminBack").addEventListener("click", () => showView("profile"));
-
 document.getElementById("adminBroadcastBtn").addEventListener("click", () => {
   const message = document.getElementById("adminBroadcastText").value.trim();
   if (!message) return tg.showAlert("Write a message first.");
-
-  tg.showConfirm(`Send this to every registered entrepreneur?\n\n"${message}"`, async (confirmed) => {
+  tg.showConfirm(`Send to all?\n\n"${message}"`, async (confirmed) => {
     if (!confirmed) return;
     const { ok, data } = await apiPost("/api/admin/broadcast", { initData: tg.initData, message });
-    tg.showAlert(ok ? `Sent to ${data.sent} (${data.failed} failed).` : "Broadcast failed. Please try again.");
+    tg.showAlert(ok ? `Sent to ${data.sent} (${data.failed} failed).` : "Failed.");
     if (ok) document.getElementById("adminBroadcastText").value = "";
   });
 });
-
-
 document.getElementById("addAdminBtn").addEventListener("click", async () => {
   const id = Number(document.getElementById("adminIdInput").value.trim());
-  if (!id) return tg.showAlert("Enter a valid numeric Telegram ID.");
+  if (!id) return tg.showAlert("Enter a valid ID.");
   const { ok } = await apiPost("/api/admin/add_admin", { initData: tg.initData, telegram_id: id });
-  tg.showAlert(ok ? "✅ Admin added." : "Something went wrong.");
+  tg.showAlert(ok ? "Admin added." : "Error.");
   if (ok) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); }
 });
-
 document.getElementById("removeAdminBtn").addEventListener("click", async () => {
   const id = Number(document.getElementById("adminIdInput").value.trim());
-  if (!id) return tg.showAlert("Enter a valid numeric Telegram ID.");
+  if (!id) return tg.showAlert("Enter a valid ID.");
   const { ok, data } = await apiPost("/api/admin/remove_admin", { initData: tg.initData, telegram_id: id });
-  if (data?.error === "is_root_admin") {
-    tg.showAlert("That's a root admin (set in Render) — remove them there instead.");
-  } else {
-    tg.showAlert(ok && data.removed ? "Admin removed." : "That ID wasn't a bot-added admin.");
-    if (ok && data.removed) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); }
-  }
+  if (data?.error === "is_root_admin") tg.showAlert("Root admin \u2014 remove via Render.");
+  else { tg.showAlert(ok && data.removed ? "Removed." : "Not found."); if (ok && data.removed) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); } }
 });
-
 document.getElementById("adminRemoveBtn").addEventListener("click", () => {
   const name = document.getElementById("adminRemoveName").value.trim();
-  if (!name) return tg.showAlert("Enter a name first.");
-
-  tg.showConfirm(`Remove the listing matching "${name}"? This can't be undone.`, async (confirmed) => {
+  if (!name) return tg.showAlert("Enter a name.");
+  tg.showConfirm(`Remove "${name}"?`, async (confirmed) => {
     if (!confirmed) return;
     const { ok, data } = await apiPost("/api/admin/forceremove", { initData: tg.initData, name });
-    tg.showAlert(ok && data.removed ? "Listing removed." : "No matching listing found.");
+    tg.showAlert(ok && data.removed ? "Removed." : "Not found.");
     if (ok && data.removed) document.getElementById("adminRemoveName").value = "";
   });
 });
