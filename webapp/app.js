@@ -59,7 +59,7 @@ function renderSocialPlatformsDisplay(profile) {
     const bgColor = isLight ? "#FFFFFF" : `${def.color}12`;
     const borderColor = isLight ? "#E0E0E0" : `${def.color}30`;
     const textColor = isLight ? "#333333" : def.color;
-    return `<span class="social-tag" style="background:${bgColor};color:${textColor};border:1px solid ${borderColor};">
+    return `<span class="social-tag copyable" data-copy="${escapeHtml(sp.handle || "")}" style="background:${bgColor};color:${textColor};border:1px solid ${borderColor};cursor:pointer;">
       <span class="social-tag-icon">${def.svg}</span>
       <span class="social-tag-label">${escapeHtml(def.label)}</span>
       <span class="social-tag-handle">${escapeHtml(sp.handle || "")}</span>
@@ -491,12 +491,6 @@ async function openDetail(entrepreneurId) {
     coverHtml = `<div style="width:100%;height:160px;border-radius:var(--radius-md);overflow:hidden;margin-bottom:16px;"><img src="data:image/jpeg;base64,${profile.cover_base64}" style="width:100%;height:100%;object-fit:cover;" /></div>`;
   }
 
-  // Logo
-  let logoHtml = "";
-  if (profile.logo_base64) {
-    logoHtml = `<div style="width:56px;height:56px;border-radius:12px;overflow:hidden;margin:0 auto 10px;border:2px solid rgba(255,255,255,0.3);"><img src="data:image/jpeg;base64,${profile.logo_base64}" style="width:100%;height:100%;object-fit:cover;" /></div>`;
-  }
-
   // Gallery
   let galleryHtml = "";
   if (profile.gallery && profile.gallery.length > 0) {
@@ -545,7 +539,7 @@ async function openDetail(entrepreneurId) {
   container.innerHTML = `
     ${coverHtml}
     <div class="profile-hero">
-      ${logoHtml || avatarHtml(profile, 76)}
+      ${avatarHtml(profile, 76)}
       <h2>${escapeHtml(profile.name)}</h2>
       <p class="tagline">${escapeHtml(servicesList) || ""}</p>
       <p class="rating-line">${ratingText}</p>
@@ -556,14 +550,9 @@ async function openDetail(entrepreneurId) {
     ${renderSocialPlatformsDisplay(profile)}
     <div class="detail-section">
       <div class="detail-section-title">Contact</div>
-      <div class="contact-btns">
-        ${profile.phone ? `<button class="contact-btn contact-btn-call" onclick="window.location.href='tel:${escapeHtml(profile.phone)}'">Call</button>` : ""}
-        ${profile.phone ? `<button class="contact-btn contact-btn-message" onclick="window.location.href='https://wa.me/${escapeHtml(profile.phone?.replace(/[^0-9]/g, ''))}'">Message</button>` : ""}
-        <button class="contact-btn contact-btn-share" id="shareBtn">Share</button>
-      </div>
       <div class="detail-list">
-        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span></div>
-        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span></div>
+        <div class="detail-row copyable" data-copy="${escapeHtml(profile.phone || "")}"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span><span class="copy-hint">Tap to copy</span></div>
+        <div class="detail-row copyable" data-copy="${escapeHtml(profile.email || "")}"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span><span class="copy-hint">Tap to copy</span></div>
         <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
         <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
       </div>
@@ -575,13 +564,14 @@ async function openDetail(entrepreneurId) {
     </div>`;
 
   document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
-  document.getElementById("shareBtn").addEventListener("click", () => {
-    if (tg.shareUrl) {
-      tg.shareUrl(window.location.href);
-    } else {
-      navigator.clipboard?.writeText(window.location.href);
-      tg.showAlert?.("Link copied!");
-    }
+  container.querySelectorAll(".copyable[data-copy]").forEach(el => {
+    el.addEventListener("click", () => {
+      const text = el.dataset.copy;
+      if (!text) return;
+      navigator.clipboard?.writeText(text).then(() => {
+        tg.showAlert?.("Copied!") || alert("Copied!");
+      });
+    });
   });
 }
 
@@ -658,7 +648,6 @@ document.getElementById("detailBack").addEventListener("click", () => showView(d
 let stepperTags = [];
 let currentStep = 1;
 let uploadedPhotoBase64 = null;
-let uploadedLogoBase64 = null;
 let uploadedCoverBase64 = null;
 let verifiedPhoneNumber = null;
 let phonePollTimer = null;
@@ -768,9 +757,6 @@ function openStepper(existingProfile) {
   document.getElementById("photoPreviewImg").style.display = "none";
   document.getElementById("photoPlaceholderIcon").style.display = "block";
   document.getElementById("photoUploadLabel").textContent = "Upload a photo";
-  document.getElementById("logoPreviewImg").style.display = "none";
-  document.getElementById("logoPlaceholderIcon").style.display = "block";
-  document.getElementById("logoUploadLabel").textContent = "Upload logo";
   document.getElementById("coverPreviewImg").style.display = "none";
   document.getElementById("coverPlaceholderIcon").style.display = "block";
   document.getElementById("coverUploadLabel").textContent = "Upload cover image";
@@ -890,7 +876,6 @@ function setupPhotoUpload(zoneId, inputId, previewImgId, placeholderId, labelId,
         canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
         const base64 = canvas.toDataURL("image/jpeg", 0.75);
         if (stateKey === "photo") uploadedPhotoBase64 = base64;
-        if (stateKey === "logo") uploadedLogoBase64 = base64;
         if (stateKey === "cover") uploadedCoverBase64 = base64;
         document.getElementById(previewImgId).src = base64;
         document.getElementById(previewImgId).style.display = "block";
@@ -903,7 +888,6 @@ function setupPhotoUpload(zoneId, inputId, previewImgId, placeholderId, labelId,
   });
 }
 setupPhotoUpload("photoUploadZone", "photoInput", "photoPreviewImg", "photoPlaceholderIcon", "photoUploadLabel", "photo");
-setupPhotoUpload("logoUploadZone", "logoInput", "logoPreviewImg", "logoPlaceholderIcon", "logoUploadLabel", "logo");
 setupPhotoUpload("coverUploadZone", "coverInput", "coverPreviewImg", "coverPlaceholderIcon", "coverUploadLabel", "cover");
 
 // Social platforms: add button
@@ -1023,7 +1007,6 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
   };
   if (uploadedPhotoBase64) payload.photo_base64 = uploadedPhotoBase64;
   else if (currentProfile?.id) payload.keep_existing_photo = true;
-  if (uploadedLogoBase64) payload.logo_base64 = uploadedLogoBase64;
   if (uploadedCoverBase64) payload.cover_base64 = uploadedCoverBase64;
 
   const { ok, data } = await apiPost("/api/register", payload);

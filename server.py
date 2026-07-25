@@ -192,9 +192,6 @@ def api_register():
             fields["social_platforms"] = social_platforms
     if photo_base64:
         fields["photo_base64"] = photo_base64
-    logo = body.get("logo_base64")
-    if logo:
-        fields["logo_base64"] = logo
     cover = body.get("cover_base64")
     if cover:
         fields["cover_base64"] = cover

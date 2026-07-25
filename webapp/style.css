@@ -277,6 +277,10 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .detail-row:last-child { border-bottom: none; }
 .detail-row .label { color: var(--text-muted); font-weight: 600; }
 .detail-row .value { text-align: right; word-break: break-word; font-weight: 500; }
+.detail-row.copyable { cursor: pointer; position: relative; }
+.detail-row.copyable:active { background: var(--bg); border-radius: var(--radius-xs); }
+.copy-hint { font-size: 10px; color: var(--secondary); font-weight: 600; opacity: 0; transition: opacity 0.2s; }
+.detail-row.copyable:hover .copy-hint { opacity: 1; }
 .private-badge {
   display: inline-block; background: var(--accent-soft); color: #92400E;
   font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px;
@@ -304,18 +308,6 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   transition: opacity 0.15s ease;
 }
 .gallery-grid img:active { opacity: 0.8; }
-
-/* ---------- Contact Buttons ---------- */
-.contact-btns { display: flex; gap: 10px; margin-bottom: 16px; }
-.contact-btn {
-  flex: 1; padding: 13px; border-radius: var(--radius-sm); border: none;
-  font-size: 13px; font-weight: 700; cursor: pointer; text-align: center;
-  transition: transform 0.15s ease;
-}
-.contact-btn:active { transform: scale(0.96); }
-.contact-btn-call { background: var(--secondary); color: white; }
-.contact-btn-message { background: var(--primary); color: white; }
-.contact-btn-share { background: var(--surface); color: var(--text); border: 1.5px solid var(--border); }
 
 /* ---------- Reviews ---------- */
 .reviews-list { display: flex; flex-direction: column; gap: 10px; }
@@ -477,18 +469,17 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .photo-upload:active { border-color: var(--secondary); }
 .photo-upload-sm { padding: 16px; }
 .photo-upload-wide { padding: 16px; }
-#photoPreviewWrap, #logoPreviewWrap, #coverPreviewWrap {
+#photoPreviewWrap, #coverPreviewWrap {
   background: var(--secondary-soft); display: flex; align-items: center;
   justify-content: center; overflow: hidden;
 }
 #photoPreviewWrap { width: 88px; height: 88px; border-radius: 50%; }
-#logoPreviewWrap { width: 64px; height: 64px; border-radius: 12px; }
 #coverPreviewWrap { width: 100%; height: 100px; border-radius: var(--radius-sm); }
-#photoPreviewWrap svg, #logoPreviewWrap svg, #coverPreviewWrap svg {
+#photoPreviewWrap svg, #coverPreviewWrap svg {
   width: 32px; height: 32px; color: var(--secondary);
 }
-#photoPreviewImg, #logoPreviewImg, #coverPreviewImg { width: 100%; height: 100%; object-fit: cover; }
-#photoUploadLabel, #logoUploadLabel, #coverUploadLabel {
+#photoPreviewImg, #coverPreviewImg { width: 100%; height: 100%; object-fit: cover; }
+#photoUploadLabel, #coverUploadLabel {
   font-size: 13px; color: var(--text-muted); font-weight: 600;
 }
 
