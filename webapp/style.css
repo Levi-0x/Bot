@@ -572,12 +572,16 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   display: flex; gap: 8px; align-items: center; background: #FFFFFF;
   border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px;
 }
-.social-platform-select-wrap { flex-shrink: 0; }
+.social-platform-select-wrap { flex-shrink: 0; position: relative; }
 .social-platform-select {
   border: none; background: var(--secondary-soft); color: var(--secondary);
-  border-radius: 8px; padding: 10px 28px 10px 10px; font-size: 13px; font-weight: 600;
+  border-radius: 8px; padding: 10px 32px 10px 12px; font-size: 13px; font-weight: 600;
   font-family: inherit; cursor: pointer; min-width: 120px;
-  appearance: auto; -webkit-appearance: auto;
+  appearance: none; -webkit-appearance: none;
+}
+.social-platform-arrow {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  pointer-events: none; color: var(--secondary); width: 14px; height: 14px;
 }
 .social-platform-handle {
   flex: 1; border: none; outline: none; font-size: 14px; padding: 8px 6px;
