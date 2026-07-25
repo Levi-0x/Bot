@@ -266,8 +266,9 @@ def _base_entrepreneur_query():
 
 def _row_to_dict(row):
     d = dict(row)
-    d["services"] = d["services_csv"].split(",") if d["services_csv"] else []
-    del d["services_csv"]
+    if "services_csv" in d:
+        d["services"] = d["services_csv"].split(",") if d["services_csv"] else []
+        del d["services_csv"]
     if d.get("gallery"):
         try:
             import json
