@@ -39,6 +39,16 @@ function showToast(iconEl) {
   }, 800);
 }
 
+document.body.addEventListener("click", (e) => {
+  const icon = e.target.closest(".copy-icon[data-copy]");
+  if (!icon) return;
+  e.stopPropagation();
+  e.preventDefault();
+  const text = icon.getAttribute("data-copy");
+  if (!text) return;
+  copyToClipboard(text).then(() => showToast(icon)).catch(() => {});
+});
+
 const AVATAR_COLORS = ["#0F9B8E", "#14213D", "#FCA311", "#4A6FA5", "#E91E63", "#2ECC71"];
 
 function colorForName(name) {
@@ -460,8 +470,8 @@ async function loadProfile() {
     <div class="detail-section">
       <div class="detail-section-title">Contact</div>
       <div class="detail-list">
-        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span></div>
-        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span></div>
+        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
         <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
         <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
         <div class="detail-row"><span class="label">Home address<span class="private-badge">Private</span></span><span class="value">${escapeHtml(profile.home_address) || "\u2014"}</span></div>
@@ -590,17 +600,6 @@ async function openDetail(entrepreneurId) {
     </div>`;
 
   document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
-  container.addEventListener("click", (e) => {
-    const icon = e.target.closest(".copy-icon[data-copy]");
-    if (!icon) return;
-    e.stopPropagation();
-    e.preventDefault();
-    const text = icon.getAttribute("data-copy");
-    if (!text) return;
-    copyToClipboard(text).then(() => {
-      showToast(icon);
-    }).catch(() => {});
-  });
 }
 
 function updateFavButton() {
