@@ -590,16 +590,16 @@ async function openDetail(entrepreneurId) {
     </div>`;
 
   document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
-  container.querySelectorAll(".copy-icon[data-copy]").forEach(icon => {
-    icon.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const text = icon.getAttribute("data-copy");
-      if (!text) return;
-      copyToClipboard(text).then(() => {
-        showToast(icon);
-      }).catch(() => {});
-    });
+  container.addEventListener("click", (e) => {
+    const icon = e.target.closest(".copy-icon[data-copy]");
+    if (!icon) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const text = icon.getAttribute("data-copy");
+    if (!text) return;
+    copyToClipboard(text).then(() => {
+      showToast(icon);
+    }).catch(() => {});
   });
 }
 
