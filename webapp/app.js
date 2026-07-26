@@ -7,6 +7,23 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
+function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand("copy"); resolve(); }
+    catch(e) { reject(e); }
+    finally { document.body.removeChild(ta); }
+  });
+}
+
 function showToast(iconEl) {
   const toast = document.createElement("div");
   toast.className = "copy-toast";
@@ -560,8 +577,8 @@ async function openDetail(entrepreneurId) {
     <div class="detail-section">
       <div class="detail-section-title">Contact</div>
       <div class="detail-list">
-        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<svg class="copy-icon" data-copy="${escapeHtml(profile.phone)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>` : ""}</div>
-        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<svg class="copy-icon" data-copy="${escapeHtml(profile.email)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>` : ""}</div>
+        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
         <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
         <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
       </div>
@@ -579,7 +596,7 @@ async function openDetail(entrepreneurId) {
       e.preventDefault();
       const text = icon.getAttribute("data-copy");
       if (!text) return;
-      navigator.clipboard?.writeText(text).then(() => {
+      copyToClipboard(text).then(() => {
         showToast(icon);
       }).catch(() => {});
     });
@@ -623,7 +640,7 @@ function openRatingModal(entrepreneurId, name) {
       </div>
       <textarea id="ratingComment" rows="3" placeholder="Optional — share your experience"></textarea>
       <button class="btn-primary" id="ratingSubmitBtn">Submit Rating</button>
-      <button class="btn-secondary" id="ratingCancelBtn">Cancel</button>
+      <button class="btn-secondary btn-modal-cancel" id="ratingCancelBtn">Cancel</button>
     </div>`;
   document.body.appendChild(overlay);
 

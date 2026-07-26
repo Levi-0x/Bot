@@ -324,7 +324,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .review-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .review-head b { font-size: 14px; }
 .review-stars { color: var(--accent); font-size: 14px; letter-spacing: 1px; }
-.review-comment { font-size: 13px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+.review-comment { font-size: 13px; color: var(--text-muted); margin: 0; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; }
 .review-date { font-size: 11px; color: var(--text-muted); margin-top: 6px; opacity: 0.7; }
 
 /* ---------- Menu List ---------- */
@@ -359,6 +359,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .btn-primary:active, .btn-secondary:active { transform: scale(0.98); }
 .btn-primary { background: var(--secondary); color: white; box-shadow: 0 4px 12px rgba(15, 155, 142, 0.3); }
 .btn-secondary { background: var(--secondary-soft); color: var(--secondary); }
+.btn-modal-cancel { margin-top: 10px; }
 
 /* ---------- Stepper ---------- */
 .step-label { text-align: center; color: var(--text-muted); font-size: 12px; margin: 0 0 8px; }
