@@ -1,11 +1,31 @@
 """
-database.py — GrowthHub data layer
+database.py — GrowthHub data layer (PostgreSQL)
+
+Migrated from SQLite. Every public function keeps the exact same name,
+arguments, and return shape as before, so server.py and bot.py don't
+need to change at all — only this file did.
+
+Set the DATABASE_URL environment variable to your Postgres connection
+string, e.g.:
+    postgresql://user:password@host:5432/dbname
+Render's managed Postgres gives you this automatically (look for
+"Internal Database URL" on the database's dashboard page) — just add
+it as an env var on your web service.
 """
 
-import sqlite3
+import os
+import json
 from contextlib import contextmanager
 
-DB_PATH = "entrepreneurs.db"
+import psycopg2
+import psycopg2.errors
+from psycopg2.extras import RealDictCursor
+
+# Local fallback so this still runs during development without Render.
+# In production, always set DATABASE_URL explicitly.
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/entrepreneurs"
+)
 
 _SUFFIXES = ["ians", "ing", "ers", "ors", "ian", "ees", "er", "es", "or", "s"]
 
@@ -18,15 +38,41 @@ def _stem(word: str) -> str:
     return word
 
 
+class _ConnWrapper:
+    """
+    Thin shim so the rest of this file can keep calling conn.execute(...)
+    the same way it did with sqlite3, instead of manually creating a
+    cursor every time. Every call gets its own RealDictCursor, whose
+    rows behave like dicts (row["col"] and dict(row) both work), just
+    like sqlite3.Row did.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        cur = self._conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(sql, params)
+        return cur
+
+    def executemany(self, sql, seq_of_params):
+        cur = self._conn.cursor()
+        cur.executemany(sql, seq_of_params)
+        return cur
+
+    def rollback(self):
+        self._conn.rollback()
+
+
 @contextmanager
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 5000")
+    conn = psycopg2.connect(DATABASE_URL)
     try:
-        yield conn
+        yield _ConnWrapper(conn)
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -35,8 +81,8 @@ def init_db():
     with get_connection() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS entrepreneurs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER UNIQUE NOT NULL,
+                id SERIAL PRIMARY KEY,
+                telegram_id BIGINT UNIQUE NOT NULL,
                 name TEXT NOT NULL,
                 description TEXT DEFAULT '',
                 socials TEXT,
@@ -51,83 +97,81 @@ def init_db():
                 website TEXT,
                 home_address TEXT,
                 business_type TEXT DEFAULT '',
-                phone_verified INTEGER DEFAULT 0,
-                identity_verified INTEGER DEFAULT 0,
-                verified_at TEXT,
+                phone_verified BOOLEAN DEFAULT FALSE,
+                identity_verified BOOLEAN DEFAULT FALSE,
+                verified_at TIMESTAMPTZ,
                 latitude REAL,
                 longitude REAL,
-                location_captured_at TEXT,
+                location_captured_at TIMESTAMPTZ,
                 social_platforms TEXT DEFAULT '[]',
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS services (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
                 category TEXT DEFAULT 'service',
                 type TEXT DEFAULT 'service',
                 description TEXT DEFAULT '',
                 price REAL DEFAULT 0,
-                delivery_available INTEGER DEFAULT 0
+                delivery_available BOOLEAN DEFAULT FALSE
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS categories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
                 icon TEXT DEFAULT '',
                 color TEXT DEFAULT ''
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS entrepreneur_services (
-                entrepreneur_id INTEGER NOT NULL,
-                service_id INTEGER NOT NULL,
-                FOREIGN KEY (entrepreneur_id) REFERENCES entrepreneurs(id) ON DELETE CASCADE,
-                FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+                entrepreneur_id INTEGER NOT NULL REFERENCES entrepreneurs(id) ON DELETE CASCADE,
+                service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
                 PRIMARY KEY (entrepreneur_id, service_id)
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ratings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entrepreneur_id INTEGER NOT NULL,
-                rater_telegram_id INTEGER NOT NULL,
+                id SERIAL PRIMARY KEY,
+                entrepreneur_id INTEGER NOT NULL REFERENCES entrepreneurs(id) ON DELETE CASCADE,
+                rater_telegram_id BIGINT NOT NULL,
                 score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
                 comment TEXT,
                 rater_name TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (entrepreneur_id) REFERENCES entrepreneurs(id) ON DELETE CASCADE
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS phone_verifications (
-                telegram_id INTEGER PRIMARY KEY,
+                telegram_id BIGINT PRIMARY KEY,
                 phone TEXT NOT NULL,
-                verified_at TEXT DEFAULT CURRENT_TIMESTAMP
+                verified_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS admins (
-                telegram_id INTEGER PRIMARY KEY,
-                added_by INTEGER,
-                added_at TEXT DEFAULT CURRENT_TIMESTAMP
+                telegram_id BIGINT PRIMARY KEY,
+                added_by BIGINT,
+                added_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS favorites (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_telegram_id INTEGER NOT NULL,
-                entrepreneur_id INTEGER NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (entrepreneur_id) REFERENCES entrepreneurs(id) ON DELETE CASCADE,
+                id SERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                entrepreneur_id INTEGER NOT NULL REFERENCES entrepreneurs(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_telegram_id, entrepreneur_id)
             )
         """)
 
-        # ---- Migrations for entrepreneurs table ----
-        existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(entrepreneurs)")}
+        # ---- Migrations ----
+        # Postgres supports "ADD COLUMN IF NOT EXISTS" directly, so unlike
+        # the old SQLite version we don't need to manually inspect existing
+        # columns first — much simpler.
         entrepreneur_migrations = {
             "phone": "TEXT",
             "email": "TEXT",
@@ -139,37 +183,30 @@ def init_db():
             "business_address": "TEXT",
             "website": "TEXT",
             "home_address": "TEXT",
-            "phone_verified": "INTEGER DEFAULT 0",
-            "identity_verified": "INTEGER DEFAULT 0",
-            "verified_at": "TEXT",
+            "phone_verified": "BOOLEAN DEFAULT FALSE",
+            "identity_verified": "BOOLEAN DEFAULT FALSE",
+            "verified_at": "TIMESTAMPTZ",
             "latitude": "REAL",
             "longitude": "REAL",
-            "location_captured_at": "TEXT",
+            "location_captured_at": "TIMESTAMPTZ",
             "social_platforms": "TEXT DEFAULT '[]'",
             "description": "TEXT DEFAULT ''",
             "business_type": "TEXT DEFAULT ''",
         }
         for column, col_type in entrepreneur_migrations.items():
-            if column not in existing_columns:
-                conn.execute(f"ALTER TABLE entrepreneurs ADD COLUMN {column} {col_type}")
+            conn.execute(f"ALTER TABLE entrepreneurs ADD COLUMN IF NOT EXISTS {column} {col_type}")
 
-        # ---- Migrations for ratings table ----
-        existing_rating_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ratings)")}
         for column, col_type in {"comment": "TEXT", "rater_name": "TEXT"}.items():
-            if column not in existing_rating_columns:
-                conn.execute(f"ALTER TABLE ratings ADD COLUMN {column} {col_type}")
+            conn.execute(f"ALTER TABLE ratings ADD COLUMN IF NOT EXISTS {column} {col_type}")
 
-        # ---- Migrations for services table ----
-        existing_service_columns = {row["name"] for row in conn.execute("PRAGMA table_info(services)")}
         for column, col_type in {
             "category": "TEXT DEFAULT 'service'",
             "type": "TEXT DEFAULT 'service'",
             "description": "TEXT DEFAULT ''",
             "price": "REAL DEFAULT 0",
-            "delivery_available": "INTEGER DEFAULT 0",
+            "delivery_available": "BOOLEAN DEFAULT FALSE",
         }.items():
-            if column not in existing_service_columns:
-                conn.execute(f"ALTER TABLE services ADD COLUMN {column} {col_type}")
+            conn.execute(f"ALTER TABLE services ADD COLUMN IF NOT EXISTS {column} {col_type}")
 
         # ---- Seed default categories ----
         cat_count = conn.execute("SELECT COUNT(*) AS c FROM categories").fetchone()["c"]
@@ -186,7 +223,10 @@ def init_db():
                 ("repair & maintenance", "\U0001f527", "#F39C12"),
                 ("other", "\U0001f4e6", "#95A5A6"),
             ]
-            conn.executemany("INSERT OR IGNORE INTO categories (name, icon, color) VALUES (?, ?, ?)", default_categories)
+            conn.executemany(
+                "INSERT INTO categories (name, icon, color) VALUES (%s, %s, %s) ON CONFLICT (name) DO NOTHING",
+                default_categories,
+            )
 
 
 # ---------- Entrepreneur registration ----------
@@ -202,44 +242,47 @@ def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[st
 
     with get_connection() as conn:
         verified = conn.execute(
-            "SELECT phone FROM phone_verifications WHERE telegram_id = ?", (telegram_id,)
+            "SELECT phone FROM phone_verifications WHERE telegram_id = %s", (telegram_id,)
         ).fetchone()
         if verified:
             fields["phone"] = verified["phone"]
-            fields["phone_verified"] = 1
+            fields["phone_verified"] = True
 
         existing = conn.execute(
-            "SELECT id FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
+            "SELECT id FROM entrepreneurs WHERE telegram_id = %s", (telegram_id,)
         ).fetchone()
 
         if existing:
-            set_clause = ", ".join(f"{col} = ?" for col in fields)
+            set_clause = ", ".join(f"{col} = %s" for col in fields)
             conn.execute(
-                f"UPDATE entrepreneurs SET {set_clause} WHERE telegram_id = ?",
+                f"UPDATE entrepreneurs SET {set_clause} WHERE telegram_id = %s",
                 (*fields.values(), telegram_id)
             )
             entrepreneur_id = existing["id"]
         else:
             columns = ", ".join(fields.keys())
-            placeholders = ", ".join("?" for _ in fields)
+            placeholders = ", ".join("%s" for _ in fields)
             cursor = conn.execute(
-                f"INSERT INTO entrepreneurs (telegram_id, {columns}) VALUES (?, {placeholders})",
+                f"INSERT INTO entrepreneurs (telegram_id, {columns}) VALUES (%s, {placeholders}) RETURNING id",
                 (telegram_id, *fields.values())
             )
-            entrepreneur_id = cursor.lastrowid
+            entrepreneur_id = cursor.fetchone()["id"]
 
-        conn.execute("DELETE FROM entrepreneur_services WHERE entrepreneur_id = ?", (entrepreneur_id,))
+        conn.execute("DELETE FROM entrepreneur_services WHERE entrepreneur_id = %s", (entrepreneur_id,))
 
         for raw_name in service_names:
             service_name = raw_name.strip().lower()
             if not service_name:
                 continue
-            conn.execute("INSERT OR IGNORE INTO services (name) VALUES (?)", (service_name,))
+            conn.execute(
+                "INSERT INTO services (name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (service_name,)
+            )
             service_id = conn.execute(
-                "SELECT id FROM services WHERE name = ?", (service_name,)
+                "SELECT id FROM services WHERE name = %s", (service_name,)
             ).fetchone()["id"]
             conn.execute(
-                "INSERT OR IGNORE INTO entrepreneur_services (entrepreneur_id, service_id) VALUES (?, ?)",
+                "INSERT INTO entrepreneur_services (entrepreneur_id, service_id) VALUES (%s, %s) "
+                "ON CONFLICT (entrepreneur_id, service_id) DO NOTHING",
                 (entrepreneur_id, service_id)
             )
 
@@ -253,9 +296,9 @@ def _base_entrepreneur_query():
         SELECT
             e.id, e.name, e.description, e.socials, e.social_platforms,
             e.phone, e.email, e.business_address, e.website,
-            e.photo_file_id, e.photo_base64,
+            e.photo_file_id, e.photo_base64, e.logo_base64, e.cover_base64,
             e.gallery, e.business_type, e.phone_verified, e.created_at,
-            GROUP_CONCAT(DISTINCT s.name) AS services_csv,
+            STRING_AGG(DISTINCT s.name, ',') AS services_csv,
             ROUND(AVG(r.score), 1) AS avg_rating,
             COUNT(DISTINCT r.id) AS rating_count
         FROM entrepreneurs e
@@ -272,7 +315,6 @@ def _row_to_dict(row):
         del d["services_csv"]
     if d.get("gallery"):
         try:
-            import json
             d["gallery"] = json.loads(d["gallery"])
         except Exception:
             d["gallery"] = []
@@ -280,7 +322,6 @@ def _row_to_dict(row):
         d["gallery"] = []
     if d.get("social_platforms"):
         try:
-            import json
             parsed = json.loads(d["social_platforms"])
             d["social_platforms"] = parsed if isinstance(parsed, list) else []
         except Exception:
@@ -296,7 +337,7 @@ def get_top_entrepreneurs(limit: int = 5):
             {_base_entrepreneur_query()}
             GROUP BY e.id
             ORDER BY avg_rating DESC NULLS LAST, rating_count DESC
-            LIMIT ?
+            LIMIT %s
         """, (limit,)).fetchall()
         return [_row_to_dict(row) for row in rows]
 
@@ -307,7 +348,7 @@ def get_recent_entrepreneurs(limit: int = 10):
             {_base_entrepreneur_query()}
             GROUP BY e.id
             ORDER BY e.created_at DESC
-            LIMIT ?
+            LIMIT %s
         """, (limit,)).fetchall()
         return [_row_to_dict(row) for row in rows]
 
@@ -317,9 +358,9 @@ def get_featured_entrepreneurs(limit: int = 10):
         rows = conn.execute(f"""
             {_base_entrepreneur_query()}
             GROUP BY e.id
-            HAVING avg_rating >= 4.0 AND rating_count >= 3
+            HAVING AVG(r.score) >= 4.0 AND COUNT(DISTINCT r.id) >= 3
             ORDER BY rating_count DESC, avg_rating DESC
-            LIMIT ?
+            LIMIT %s
         """, (limit,)).fetchall()
         return [_row_to_dict(row) for row in rows]
 
@@ -331,7 +372,7 @@ def get_all_services():
                    COUNT(es.entrepreneur_id) AS entrepreneur_count
             FROM services s
             JOIN entrepreneur_services es ON es.service_id = s.id
-            GROUP BY s.name
+            GROUP BY s.id
             ORDER BY s.category ASC, s.name ASC
         """).fetchall()
         return [dict(row) for row in rows]
@@ -349,8 +390,8 @@ def get_services_by_category(category: str):
             SELECT s.name, s.category, s.type, COUNT(es.entrepreneur_id) AS entrepreneur_count
             FROM services s
             JOIN entrepreneur_services es ON es.service_id = s.id
-            WHERE s.category = ?
-            GROUP BY s.name
+            WHERE s.category = %s
+            GROUP BY s.id
             ORDER BY s.name ASC
         """, (category,)).fetchall()
         return [dict(row) for row in rows]
@@ -374,7 +415,7 @@ def find_by_service(query: str, category: str = "", service_type: str = ""):
         matching_ids = set()
 
         if matching_services:
-            placeholders = ",".join("?" for _ in matching_services)
+            placeholders = ",".join("%s" for _ in matching_services)
             rows = conn.execute(f"""
                 SELECT DISTINCT es.entrepreneur_id FROM entrepreneur_services es
                 JOIN services s ON s.id = es.service_id
@@ -383,14 +424,14 @@ def find_by_service(query: str, category: str = "", service_type: str = ""):
             matching_ids |= {row["entrepreneur_id"] for row in rows}
 
         name_or_address_rows = conn.execute("""
-            SELECT id FROM entrepreneurs WHERE LOWER(name) LIKE LOWER(?) OR LOWER(business_address) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?)
+            SELECT id FROM entrepreneurs WHERE LOWER(name) LIKE LOWER(%s) OR LOWER(business_address) LIKE LOWER(%s) OR LOWER(description) LIKE LOWER(%s)
         """, (f"%{query_lower}%", f"%{query_lower}%", f"%{query_lower}%")).fetchall()
         matching_ids |= {row["id"] for row in name_or_address_rows}
 
         if not matching_ids:
             return []
 
-        placeholders = ",".join("?" for _ in matching_ids)
+        placeholders = ",".join("%s" for _ in matching_ids)
         rows = conn.execute(f"""
             {_base_entrepreneur_query()}
             WHERE e.id IN ({placeholders})
@@ -406,24 +447,24 @@ def find_by_service(query: str, category: str = "", service_type: str = ""):
 def rate_entrepreneur_by_id(entrepreneur_id: int, rater_telegram_id: int, score: int, comment: str = "", rater_name: str = ""):
     with get_connection() as conn:
         match = conn.execute(
-            "SELECT id FROM entrepreneurs WHERE id = ?", (entrepreneur_id,)
+            "SELECT id FROM entrepreneurs WHERE id = %s", (entrepreneur_id,)
         ).fetchone()
         if not match:
             return False
 
         existing = conn.execute(
-            "SELECT id FROM ratings WHERE entrepreneur_id = ? AND rater_telegram_id = ?",
+            "SELECT id FROM ratings WHERE entrepreneur_id = %s AND rater_telegram_id = %s",
             (entrepreneur_id, rater_telegram_id)
         ).fetchone()
 
         if existing:
             conn.execute(
-                "UPDATE ratings SET score = ?, comment = ?, rater_name = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE ratings SET score = %s, comment = %s, rater_name = %s, created_at = CURRENT_TIMESTAMP WHERE id = %s",
                 (score, comment, rater_name, existing["id"])
             )
         else:
             conn.execute(
-                "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score, comment, rater_name) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score, comment, rater_name) VALUES (%s, %s, %s, %s, %s)",
                 (entrepreneur_id, rater_telegram_id, score, comment, rater_name)
             )
         return True
@@ -434,9 +475,9 @@ def get_reviews(entrepreneur_id: int, limit: int = 50):
         rows = conn.execute("""
             SELECT score, comment, rater_name, created_at
             FROM ratings
-            WHERE entrepreneur_id = ?
+            WHERE entrepreneur_id = %s
             ORDER BY created_at DESC
-            LIMIT ?
+            LIMIT %s
         """, (entrepreneur_id, limit)).fetchall()
         return [dict(row) for row in rows]
 
@@ -444,12 +485,12 @@ def get_reviews(entrepreneur_id: int, limit: int = 50):
 def rate_entrepreneur(name: str, rater_telegram_id: int, score: int):
     with get_connection() as conn:
         match = conn.execute(
-            "SELECT id, name FROM entrepreneurs WHERE name LIKE ?", (f"%{name.strip()}%",)
+            "SELECT id, name FROM entrepreneurs WHERE name LIKE %s", (f"%{name.strip()}%",)
         ).fetchone()
         if not match:
             return False, f'No entrepreneur found matching "{name}".'
         conn.execute(
-            "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score) VALUES (?, ?, ?)",
+            "INSERT INTO ratings (entrepreneur_id, rater_telegram_id, score) VALUES (%s, %s, %s)",
             (match["id"], rater_telegram_id, score)
         )
         return True, f'Rated {match["name"]} {score}/5.'
@@ -461,18 +502,19 @@ def add_favorite(user_telegram_id: int, entrepreneur_id: int):
     with get_connection() as conn:
         try:
             conn.execute(
-                "INSERT INTO favorites (user_telegram_id, entrepreneur_id) VALUES (?, ?)",
+                "INSERT INTO favorites (user_telegram_id, entrepreneur_id) VALUES (%s, %s)",
                 (user_telegram_id, entrepreneur_id)
             )
             return True
-        except sqlite3.IntegrityError:
+        except psycopg2.IntegrityError:
+            conn.rollback()
             return False
 
 
 def remove_favorite(user_telegram_id: int, entrepreneur_id: int):
     with get_connection() as conn:
         cursor = conn.execute(
-            "DELETE FROM favorites WHERE user_telegram_id = ? AND entrepreneur_id = ?",
+            "DELETE FROM favorites WHERE user_telegram_id = %s AND entrepreneur_id = %s",
             (user_telegram_id, entrepreneur_id)
         )
         return cursor.rowcount > 0
@@ -481,7 +523,7 @@ def remove_favorite(user_telegram_id: int, entrepreneur_id: int):
 def is_favorited(user_telegram_id: int, entrepreneur_id: int):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id FROM favorites WHERE user_telegram_id = ? AND entrepreneur_id = ?",
+            "SELECT id FROM favorites WHERE user_telegram_id = %s AND entrepreneur_id = %s",
             (user_telegram_id, entrepreneur_id)
         ).fetchone()
         return bool(row)
@@ -492,8 +534,8 @@ def get_favorites(user_telegram_id: int):
         rows = conn.execute(f"""
             {_base_entrepreneur_query()}
             JOIN favorites f ON f.entrepreneur_id = e.id
-            WHERE f.user_telegram_id = ?
-            GROUP BY e.id
+            WHERE f.user_telegram_id = %s
+            GROUP BY e.id, f.created_at
             ORDER BY f.created_at DESC
         """, (user_telegram_id,)).fetchall()
         return [_row_to_dict(row) for row in rows]
@@ -510,14 +552,14 @@ def get_admin_ids_from_db():
 def add_admin(telegram_id: int, added_by: int):
     with get_connection() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO admins (telegram_id, added_by) VALUES (?, ?)",
+            "INSERT INTO admins (telegram_id, added_by) VALUES (%s, %s) ON CONFLICT (telegram_id) DO NOTHING",
             (telegram_id, added_by)
         )
 
 
 def remove_admin(telegram_id: int):
     with get_connection() as conn:
-        cursor = conn.execute("DELETE FROM admins WHERE telegram_id = ?", (telegram_id,))
+        cursor = conn.execute("DELETE FROM admins WHERE telegram_id = %s", (telegram_id,))
         return cursor.rowcount > 0
 
 
@@ -527,19 +569,19 @@ def set_verified_phone(telegram_id: int, phone: str):
     with get_connection() as conn:
         conn.execute("""
             INSERT INTO phone_verifications (telegram_id, phone, verified_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(telegram_id) DO UPDATE SET phone=excluded.phone, verified_at=CURRENT_TIMESTAMP
+            VALUES (%s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (telegram_id) DO UPDATE SET phone = EXCLUDED.phone, verified_at = CURRENT_TIMESTAMP
         """, (telegram_id, phone))
         conn.execute(
-            "UPDATE entrepreneurs SET phone = ?, phone_verified = 1 WHERE telegram_id = ?",
-            (phone, telegram_id)
+            "UPDATE entrepreneurs SET phone = %s, phone_verified = %s WHERE telegram_id = %s",
+            (phone, True, telegram_id)
         )
 
 
 def get_phone_verification(telegram_id: int):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT phone, verified_at FROM phone_verifications WHERE telegram_id = ?", (telegram_id,)
+            "SELECT phone, verified_at FROM phone_verifications WHERE telegram_id = %s", (telegram_id,)
         ).fetchone()
         return dict(row) if row else None
 
@@ -567,9 +609,9 @@ def get_public_profile(entrepreneur_id: int):
         row = conn.execute("""
             SELECT id, name, description, socials, social_platforms, phone, email,
                    business_address, website, photo_file_id, photo_base64,
-                   gallery, business_type,
+                   logo_base64, cover_base64, gallery, business_type,
                    created_at, phone_verified
-            FROM entrepreneurs WHERE id = ?
+            FROM entrepreneurs WHERE id = %s
         """, (entrepreneur_id,)).fetchone()
         if not row:
             return None
@@ -578,12 +620,12 @@ def get_public_profile(entrepreneur_id: int):
             SELECT s.name, s.type, s.description, s.price, s.delivery_available
             FROM services s
             JOIN entrepreneur_services es ON es.service_id = s.id
-            WHERE es.entrepreneur_id = ?
+            WHERE es.entrepreneur_id = %s
         """, (entrepreneur_id,)).fetchall()
         profile["services"] = [dict(s) for s in services]
         rating_row = conn.execute("""
             SELECT ROUND(AVG(score), 1) AS avg_rating, COUNT(*) AS rating_count
-            FROM ratings WHERE entrepreneur_id = ?
+            FROM ratings WHERE entrepreneur_id = %s
         """, (entrepreneur_id,)).fetchone()
         profile["avg_rating"] = rating_row["avg_rating"]
         profile["rating_count"] = rating_row["rating_count"]
@@ -593,7 +635,7 @@ def get_public_profile(entrepreneur_id: int):
 def get_photo_fields(entrepreneur_id: int):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT photo_file_id, photo_base64 FROM entrepreneurs WHERE id = ?", (entrepreneur_id,)
+            "SELECT photo_file_id, photo_base64 FROM entrepreneurs WHERE id = %s", (entrepreneur_id,)
         ).fetchone()
         return dict(row) if row else None
 
@@ -601,7 +643,7 @@ def get_photo_fields(entrepreneur_id: int):
 def get_entrepreneur_profile(telegram_id: int):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
+            "SELECT * FROM entrepreneurs WHERE telegram_id = %s", (telegram_id,)
         ).fetchone()
         if not row:
             return None
@@ -610,12 +652,12 @@ def get_entrepreneur_profile(telegram_id: int):
             SELECT s.name, s.type, s.description, s.price, s.delivery_available
             FROM services s
             JOIN entrepreneur_services es ON es.service_id = s.id
-            WHERE es.entrepreneur_id = ?
+            WHERE es.entrepreneur_id = %s
         """, (profile["id"],)).fetchall()
         profile["services"] = [dict(s) for s in services]
         rating_row = conn.execute("""
             SELECT ROUND(AVG(score), 1) AS avg_rating, COUNT(*) AS rating_count
-            FROM ratings WHERE entrepreneur_id = ?
+            FROM ratings WHERE entrepreneur_id = %s
         """, (profile["id"],)).fetchone()
         profile["avg_rating"] = rating_row["avg_rating"]
         profile["rating_count"] = rating_row["rating_count"]
@@ -625,25 +667,25 @@ def get_entrepreneur_profile(telegram_id: int):
 def force_delete_by_name(name: str):
     with get_connection() as conn:
         match = conn.execute(
-            "SELECT telegram_id FROM entrepreneurs WHERE name LIKE ?", (f"%{name.strip()}%",)
+            "SELECT telegram_id FROM entrepreneurs WHERE name LIKE %s", (f"%{name.strip()}%",)
         ).fetchone()
         if not match:
             return False, None
-        conn.execute("DELETE FROM entrepreneurs WHERE telegram_id = ?", (match["telegram_id"],))
+        conn.execute("DELETE FROM entrepreneurs WHERE telegram_id = %s", (match["telegram_id"],))
         return True, match["telegram_id"]
 
 
 def delete_entrepreneur(telegram_id: int):
     with get_connection() as conn:
         cursor = conn.execute(
-            "DELETE FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
+            "DELETE FROM entrepreneurs WHERE telegram_id = %s", (telegram_id,)
         )
         conn.execute(
-            "DELETE FROM favorites WHERE user_telegram_id = ?",
+            "DELETE FROM favorites WHERE user_telegram_id = %s",
             (telegram_id,)
         )
         conn.execute(
-            "DELETE FROM phone_verifications WHERE telegram_id = ?",
+            "DELETE FROM phone_verifications WHERE telegram_id = %s",
             (telegram_id,)
         )
         return cursor.rowcount > 0
@@ -652,7 +694,7 @@ def delete_entrepreneur(telegram_id: int):
 def add_services(telegram_id: int, service_names: list[str]):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
+            "SELECT id FROM entrepreneurs WHERE telegram_id = %s", (telegram_id,)
         ).fetchone()
         if not row:
             return False
@@ -661,12 +703,15 @@ def add_services(telegram_id: int, service_names: list[str]):
             service_name = raw_name.strip().lower()
             if not service_name:
                 continue
-            conn.execute("INSERT OR IGNORE INTO services (name) VALUES (?)", (service_name,))
+            conn.execute(
+                "INSERT INTO services (name) VALUES (%s) ON CONFLICT (name) DO NOTHING", (service_name,)
+            )
             service_id = conn.execute(
-                "SELECT id FROM services WHERE name = ?", (service_name,)
+                "SELECT id FROM services WHERE name = %s", (service_name,)
             ).fetchone()["id"]
             conn.execute(
-                "INSERT OR IGNORE INTO entrepreneur_services (entrepreneur_id, service_id) VALUES (?, ?)",
+                "INSERT INTO entrepreneur_services (entrepreneur_id, service_id) VALUES (%s, %s) "
+                "ON CONFLICT (entrepreneur_id, service_id) DO NOTHING",
                 (entrepreneur_id, service_id)
             )
         return True
@@ -675,7 +720,7 @@ def add_services(telegram_id: int, service_names: list[str]):
 def remove_services(telegram_id: int, service_names: list[str]):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id FROM entrepreneurs WHERE telegram_id = ?", (telegram_id,)
+            "SELECT id FROM entrepreneurs WHERE telegram_id = %s", (telegram_id,)
         ).fetchone()
         if not row:
             return False
@@ -685,11 +730,11 @@ def remove_services(telegram_id: int, service_names: list[str]):
             if not service_name:
                 continue
             service_row = conn.execute(
-                "SELECT id FROM services WHERE name = ?", (service_name,)
+                "SELECT id FROM services WHERE name = %s", (service_name,)
             ).fetchone()
             if service_row:
                 conn.execute(
-                    "DELETE FROM entrepreneur_services WHERE entrepreneur_id = ? AND service_id = ?",
+                    "DELETE FROM entrepreneur_services WHERE entrepreneur_id = %s AND service_id = %s",
                     (entrepreneur_id, service_row["id"])
                 )
         return True
