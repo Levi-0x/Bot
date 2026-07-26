@@ -276,11 +276,16 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 }
 .detail-row:last-child { border-bottom: none; }
 .detail-row .label { color: var(--text-muted); font-weight: 600; }
-.detail-row .value { text-align: right; word-break: break-word; font-weight: 500; }
-.detail-row.copyable { cursor: pointer; position: relative; }
-.detail-row.copyable:active { background: var(--bg); border-radius: var(--radius-xs); }
-.copy-hint { font-size: 10px; color: var(--secondary); font-weight: 600; opacity: 0; transition: opacity 0.2s; }
-.detail-row.copyable:hover .copy-hint { opacity: 1; }
+.detail-row .value { text-align: right; word-break: break-word; font-weight: 500; flex: 1; }
+.copy-icon {
+  width: 18px; height: 18px; flex-shrink: 0; cursor: pointer;
+  color: var(--text-muted); transition: transform 0.15s ease, color 0.15s ease;
+  margin-left: 6px;
+}
+.copy-icon:active { transform: scale(0.75); color: var(--secondary); }
+.social-tag.copyable { cursor: pointer; }
+.social-tag.copyable .copy-icon { width: 14px; height: 14px; vertical-align: middle; margin-left: 4px; }
+.social-tag.copyable .copy-icon:active { transform: scale(0.75); color: var(--secondary); }
 .private-badge {
   display: inline-block; background: var(--accent-soft); color: #92400E;
   font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px;
@@ -467,19 +472,16 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   cursor: pointer; text-align: center; transition: border-color 0.2s ease;
 }
 .photo-upload:active { border-color: var(--secondary); }
-.photo-upload-sm { padding: 16px; }
-.photo-upload-wide { padding: 16px; }
-#photoPreviewWrap, #coverPreviewWrap {
+#photoPreviewWrap {
   background: var(--secondary-soft); display: flex; align-items: center;
   justify-content: center; overflow: hidden;
 }
 #photoPreviewWrap { width: 88px; height: 88px; border-radius: 50%; }
-#coverPreviewWrap { width: 100%; height: 100px; border-radius: var(--radius-sm); }
-#photoPreviewWrap svg, #coverPreviewWrap svg {
+#photoPreviewWrap svg {
   width: 32px; height: 32px; color: var(--secondary);
 }
-#photoPreviewImg, #coverPreviewImg { width: 100%; height: 100%; object-fit: cover; }
-#photoUploadLabel, #coverUploadLabel {
+#photoPreviewImg { width: 100%; height: 100%; object-fit: cover; }
+#photoUploadLabel {
   font-size: 13px; color: var(--text-muted); font-weight: 600;
 }
 

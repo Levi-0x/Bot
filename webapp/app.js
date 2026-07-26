@@ -59,10 +59,11 @@ function renderSocialPlatformsDisplay(profile) {
     const bgColor = isLight ? "#FFFFFF" : `${def.color}12`;
     const borderColor = isLight ? "#E0E0E0" : `${def.color}30`;
     const textColor = isLight ? "#333333" : def.color;
-    return `<span class="social-tag copyable" data-copy="${escapeHtml(sp.handle || "")}" style="background:${bgColor};color:${textColor};border:1px solid ${borderColor};cursor:pointer;">
+    return `<span class="social-tag copyable" data-copy="${escapeHtml(sp.handle || "")}" style="background:${bgColor};color:${textColor};border:1px solid ${borderColor};">
       <span class="social-tag-icon">${def.svg}</span>
       <span class="social-tag-label">${escapeHtml(def.label)}</span>
       <span class="social-tag-handle">${escapeHtml(sp.handle || "")}</span>
+      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
     </span>`;
   }).filter(Boolean).join("");
 
@@ -485,12 +486,6 @@ async function openDetail(entrepreneurId) {
   const ratingText = profile.avg_rating ? `\u2b50 ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
   const servicesList = (profile.services || []).map(s => typeof s === "object" ? s.name : s).join(", ");
 
-  // Cover image
-  let coverHtml = "";
-  if (profile.cover_base64) {
-    coverHtml = `<div style="width:100%;height:160px;border-radius:var(--radius-md);overflow:hidden;margin-bottom:16px;"><img src="data:image/jpeg;base64,${profile.cover_base64}" style="width:100%;height:100%;object-fit:cover;" /></div>`;
-  }
-
   // Gallery
   let galleryHtml = "";
   if (profile.gallery && profile.gallery.length > 0) {
@@ -537,7 +532,6 @@ async function openDetail(entrepreneurId) {
     : `<p class="field-hint">No reviews yet \u2014 be the first to rate ${escapeHtml(profile.name)}.</p>`;
 
   container.innerHTML = `
-    ${coverHtml}
     <div class="profile-hero">
       ${avatarHtml(profile, 76)}
       <h2>${escapeHtml(profile.name)}</h2>
@@ -551,8 +545,8 @@ async function openDetail(entrepreneurId) {
     <div class="detail-section">
       <div class="detail-section-title">Contact</div>
       <div class="detail-list">
-        <div class="detail-row copyable" data-copy="${escapeHtml(profile.phone || "")}"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span><span class="copy-hint">Tap to copy</span></div>
-        <div class="detail-row copyable" data-copy="${escapeHtml(profile.email || "")}"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span><span class="copy-hint">Tap to copy</span></div>
+        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<svg class="copy-icon" data-copy="${escapeHtml(profile.phone)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>` : ""}</div>
+        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<svg class="copy-icon" data-copy="${escapeHtml(profile.email)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>` : ""}</div>
         <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
         <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
       </div>
@@ -564,9 +558,10 @@ async function openDetail(entrepreneurId) {
     </div>`;
 
   document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
-  container.querySelectorAll(".copyable[data-copy]").forEach(el => {
-    el.addEventListener("click", () => {
-      const text = el.dataset.copy;
+  container.querySelectorAll(".copy-icon[data-copy]").forEach(icon => {
+    icon.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const text = icon.dataset.copy;
       if (!text) return;
       navigator.clipboard?.writeText(text).then(() => {
         tg.showAlert?.("Copied!") || alert("Copied!");
@@ -648,7 +643,6 @@ document.getElementById("detailBack").addEventListener("click", () => showView(d
 let stepperTags = [];
 let currentStep = 1;
 let uploadedPhotoBase64 = null;
-let uploadedCoverBase64 = null;
 let verifiedPhoneNumber = null;
 let phonePollTimer = null;
 let selectedOfferType = "service";
@@ -757,9 +751,7 @@ function openStepper(existingProfile) {
   document.getElementById("photoPreviewImg").style.display = "none";
   document.getElementById("photoPlaceholderIcon").style.display = "block";
   document.getElementById("photoUploadLabel").textContent = "Upload a photo";
-  document.getElementById("coverPreviewImg").style.display = "none";
-  document.getElementById("coverPlaceholderIcon").style.display = "block";
-  document.getElementById("coverUploadLabel").textContent = "Upload cover image";
+  // Reset steppers
 
   if (existingProfile?.id && (existingProfile.photo_base64 || existingProfile.photo_file_id)) {
     document.getElementById("photoPreviewImg").src = photoUrl(existingProfile.id);
@@ -868,7 +860,7 @@ function setupPhotoUpload(zoneId, inputId, previewImgId, placeholderId, labelId,
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
-        const MAX_WIDTH = stateKey === "cover" ? 800 : 640;
+        const MAX_WIDTH = 640;
         const scale = Math.min(1, MAX_WIDTH / img.width);
         const canvas = document.createElement("canvas");
         canvas.width = img.width * scale;
@@ -876,7 +868,6 @@ function setupPhotoUpload(zoneId, inputId, previewImgId, placeholderId, labelId,
         canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
         const base64 = canvas.toDataURL("image/jpeg", 0.75);
         if (stateKey === "photo") uploadedPhotoBase64 = base64;
-        if (stateKey === "cover") uploadedCoverBase64 = base64;
         document.getElementById(previewImgId).src = base64;
         document.getElementById(previewImgId).style.display = "block";
         document.getElementById(placeholderId).style.display = "none";
@@ -888,7 +879,7 @@ function setupPhotoUpload(zoneId, inputId, previewImgId, placeholderId, labelId,
   });
 }
 setupPhotoUpload("photoUploadZone", "photoInput", "photoPreviewImg", "photoPlaceholderIcon", "photoUploadLabel", "photo");
-setupPhotoUpload("coverUploadZone", "coverInput", "coverPreviewImg", "coverPlaceholderIcon", "coverUploadLabel", "cover");
+
 
 // Social platforms: add button
 document.getElementById("addSocialPlatformBtn").addEventListener("click", addSocialPlatform);
@@ -1007,7 +998,7 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
   };
   if (uploadedPhotoBase64) payload.photo_base64 = uploadedPhotoBase64;
   else if (currentProfile?.id) payload.keep_existing_photo = true;
-  if (uploadedCoverBase64) payload.cover_base64 = uploadedCoverBase64;
+
 
   const { ok, data } = await apiPost("/api/register", payload);
   if (ok) {

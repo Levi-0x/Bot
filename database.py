@@ -253,7 +253,7 @@ def _base_entrepreneur_query():
         SELECT
             e.id, e.name, e.description, e.socials, e.social_platforms,
             e.phone, e.email, e.business_address, e.website,
-            e.photo_file_id, e.photo_base64, e.cover_base64,
+            e.photo_file_id, e.photo_base64,
             e.gallery, e.business_type, e.phone_verified, e.created_at,
             GROUP_CONCAT(DISTINCT s.name) AS services_csv,
             ROUND(AVG(r.score), 1) AS avg_rating,
@@ -567,7 +567,7 @@ def get_public_profile(entrepreneur_id: int):
         row = conn.execute("""
             SELECT id, name, description, socials, social_platforms, phone, email,
                    business_address, website, photo_file_id, photo_base64,
-                   cover_base64, gallery, business_type,
+                   gallery, business_type,
                    created_at, phone_verified
             FROM entrepreneurs WHERE id = ?
         """, (entrepreneur_id,)).fetchone()

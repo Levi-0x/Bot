@@ -192,9 +192,6 @@ def api_register():
             fields["social_platforms"] = social_platforms
     if photo_base64:
         fields["photo_base64"] = photo_base64
-    cover = body.get("cover_base64")
-    if cover:
-        fields["cover_base64"] = cover
     gallery = body.get("gallery")
     if gallery is not None and isinstance(gallery, list):
         fields["gallery"] = json.dumps(gallery)
