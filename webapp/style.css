@@ -280,12 +280,13 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .copy-icon {
   width: 18px; height: 18px; flex-shrink: 0; cursor: pointer;
   color: var(--text-muted); transition: transform 0.15s ease, color 0.15s ease;
-  margin-left: 6px;
+  margin-left: 6px; background: none; border: none; padding: 0;
+  display: inline-flex; align-items: center;
 }
+.copy-icon svg { width: 100%; height: 100%; }
 .copy-icon:active { transform: scale(0.75); color: var(--secondary); }
-.social-tag.copyable { cursor: pointer; }
-.social-tag.copyable .copy-icon { width: 14px; height: 14px; vertical-align: middle; margin-left: 4px; }
-.social-tag.copyable .copy-icon:active { transform: scale(0.75); color: var(--secondary); }
+.social-tag .copy-icon { width: 16px; height: 16px; margin-left: 4px; color: inherit; }
+.social-tag .copy-icon:active { transform: scale(0.75); }
 .private-badge {
   display: inline-block; background: var(--accent-soft); color: #92400E;
   font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px;
@@ -513,7 +514,9 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   border: 1.5px solid var(--success); border-radius: var(--radius-sm);
   padding: 13px 14px; background: #ECFDF5; margin-bottom: 6px;
 }
-.verified-phone-box span:first-child { font-weight: 600; color: var(--text); }
+.verified-phone-left { display: flex; align-items: center; gap: 8px; }
+.verified-phone-left span { font-weight: 600; color: var(--text); }
+.verified-label { font-size: 12px; font-weight: 700; color: var(--success); text-transform: uppercase; letter-spacing: 0.5px; }
 
 .waiting-box {
   display: flex; align-items: center; gap: 12px; border: 1.5px solid var(--border);
@@ -662,6 +665,18 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
 }
 .fav-remove-btn:active { background: var(--danger); color: white; }
+
+/* ---------- Copy Toast ---------- */
+.copy-toast {
+  position: fixed; z-index: 9999;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--secondary); color: white;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transform: translateY(4px) scale(0.8);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+.copy-toast.show { opacity: 1; transform: translateY(0) scale(1); }
 
 /* ---------- Suppress Telegram Loading ---------- */
 .loading-placeholder,

@@ -7,6 +7,21 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
+function showToast(iconEl) {
+  const toast = document.createElement("div");
+  toast.className = "copy-toast";
+  toast.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>`;
+  const rect = iconEl.getBoundingClientRect();
+  toast.style.left = rect.left + rect.width / 2 - 12 + "px";
+  toast.style.top = rect.top - 28 + "px";
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 300);
+  }, 800);
+}
+
 const AVATAR_COLORS = ["#0F9B8E", "#14213D", "#FCA311", "#4A6FA5", "#E91E63", "#2ECC71"];
 
 function colorForName(name) {
@@ -59,11 +74,11 @@ function renderSocialPlatformsDisplay(profile) {
     const bgColor = isLight ? "#FFFFFF" : `${def.color}12`;
     const borderColor = isLight ? "#E0E0E0" : `${def.color}30`;
     const textColor = isLight ? "#333333" : def.color;
-    return `<span class="social-tag copyable" data-copy="${escapeHtml(sp.handle || "")}" style="background:${bgColor};color:${textColor};border:1px solid ${borderColor};">
+    return `<span class="social-tag" style="background:${bgColor};color:${textColor};border:1px solid ${borderColor};">
       <span class="social-tag-icon">${def.svg}</span>
       <span class="social-tag-label">${escapeHtml(def.label)}</span>
       <span class="social-tag-handle">${escapeHtml(sp.handle || "")}</span>
-      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <button class="copy-icon" data-copy="${escapeHtml(sp.handle || "")}" aria-label="Copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
     </span>`;
   }).filter(Boolean).join("");
 
@@ -561,11 +576,12 @@ async function openDetail(entrepreneurId) {
   container.querySelectorAll(".copy-icon[data-copy]").forEach(icon => {
     icon.addEventListener("click", (e) => {
       e.stopPropagation();
-      const text = icon.dataset.copy;
+      e.preventDefault();
+      const text = icon.getAttribute("data-copy");
       if (!text) return;
       navigator.clipboard?.writeText(text).then(() => {
-        tg.showAlert?.("Copied!") || alert("Copied!");
-      });
+        showToast(icon);
+      }).catch(() => {});
     });
   });
 }
@@ -798,7 +814,7 @@ function refreshPhoneVerifiedUI(state) {
 
   if (state === "verified") {
     numberSpan.textContent = verifiedPhoneNumber;
-    hint.textContent = "Verified \u2014 you're all set.";
+    hint.textContent = "You're all set.";
   } else if (state === "waiting") {
     hint.textContent = "";
   } else {
