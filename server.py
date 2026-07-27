@@ -138,7 +138,21 @@ def api_profile():
     if not user:
         return jsonify({"error": "invalid_init_data"}), 401
     profile = db.get_entrepreneur_profile(user["id"])
+    if profile:
+        profile["reviews_written"] = db.count_reviews_written(user["id"])
+        profile["favorites_count"] = db.count_favorites(user["id"])
     return jsonify(profile)
+
+
+@flask_app.route("/api/upgrade_to_freelancer", methods=["POST"])
+def api_upgrade_to_freelancer():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    user = validate_init_data(body.get("initData", ""), bot_token)
+    if not user:
+        return jsonify({"error": "invalid_init_data"}), 401
+    db.upgrade_to_freelancer(user["id"])
+    return jsonify({"status": "ok"})
 
 
 @flask_app.route("/api/register", methods=["POST"])
@@ -155,48 +169,72 @@ def api_register():
     photo_base64 = body.get("photo_base64") or ""
     home_address = (body.get("home_address") or "").strip()
     business_address = (body.get("business_address") or "").strip()
+    user_type = (body.get("user_type") or "freelancer").strip()
+    if user_type not in ("customer", "freelancer"):
+        user_type = "freelancer"
 
     phone_verification = db.get_phone_verification(user["id"])
     if not phone_verification:
         return jsonify({"error": "phone_not_verified"}), 400
 
-    missing = []
-    if not name:
-        missing.append("name")
-    if not services:
-        missing.append("services")
     import re as _re
-    if not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
-        missing.append("email")
-    if not photo_base64 and not body.get("keep_existing_photo"):
-        missing.append("photo")
-    if not home_address and not business_address:
-        missing.append("business_address_or_home_address")
-    if missing:
-        return jsonify({"error": "missing_fields", "fields": missing}), 400
 
-    fields = {
-        "name": name,
-        "email": email,
-        "business_address": business_address,
-        "website": (body.get("website") or "").strip(),
-        "home_address": home_address,
-        "description": (body.get("description") or "").strip()[:500],
-        "business_type": (body.get("business_type") or "").strip(),
-    }
-    social_platforms = body.get("social_platforms")
-    if social_platforms is not None:
-        if isinstance(social_platforms, list):
-            fields["social_platforms"] = json.dumps(social_platforms)
-        elif isinstance(social_platforms, str):
-            fields["social_platforms"] = social_platforms
-    if photo_base64:
-        fields["photo_base64"] = photo_base64
-    gallery = body.get("gallery")
-    if gallery is not None and isinstance(gallery, list):
-        fields["gallery"] = json.dumps(gallery)
+    if user_type == "customer":
+        missing = []
+        if not name:
+            missing.append("name")
+        if not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            missing.append("email")
+        if not photo_base64 and not body.get("keep_existing_photo"):
+            missing.append("photo")
+        if missing:
+            return jsonify({"error": "missing_fields", "fields": missing}), 400
 
-    db.register_entrepreneur(user["id"], fields, services)
+        fields = {
+            "name": name,
+            "email": email,
+            "user_type": "customer",
+        }
+        if photo_base64:
+            fields["photo_base64"] = photo_base64
+    else:
+        missing = []
+        if not name:
+            missing.append("name")
+        if not services:
+            missing.append("services")
+        if not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            missing.append("email")
+        if not photo_base64 and not body.get("keep_existing_photo"):
+            missing.append("photo")
+        if not home_address and not business_address:
+            missing.append("business_address_or_home_address")
+        if missing:
+            return jsonify({"error": "missing_fields", "fields": missing}), 400
+
+        fields = {
+            "name": name,
+            "email": email,
+            "business_address": business_address,
+            "website": (body.get("website") or "").strip(),
+            "home_address": home_address,
+            "description": (body.get("description") or "").strip()[:500],
+            "business_type": (body.get("business_type") or "").strip(),
+            "user_type": "freelancer",
+        }
+        social_platforms = body.get("social_platforms")
+        if social_platforms is not None:
+            if isinstance(social_platforms, list):
+                fields["social_platforms"] = json.dumps(social_platforms)
+            elif isinstance(social_platforms, str):
+                fields["social_platforms"] = social_platforms
+        if photo_base64:
+            fields["photo_base64"] = photo_base64
+        gallery = body.get("gallery")
+        if gallery is not None and isinstance(gallery, list):
+            fields["gallery"] = json.dumps(gallery)
+
+    db.register_entrepreneur(user["id"], fields, services if user_type == "freelancer" else [])
     return jsonify({"status": "ok"})
 
 

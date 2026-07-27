@@ -192,6 +192,7 @@ def init_db():
             "social_platforms": "TEXT DEFAULT '[]'",
             "description": "TEXT DEFAULT ''",
             "business_type": "TEXT DEFAULT ''",
+            "user_type": "TEXT DEFAULT 'freelancer'",
         }
         for column, col_type in entrepreneur_migrations.items():
             conn.execute(f"ALTER TABLE entrepreneurs ADD COLUMN IF NOT EXISTS {column} {col_type}")
@@ -237,6 +238,7 @@ def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[st
         "logo_base64", "cover_base64", "gallery",
         "business_address", "website", "home_address",
         "phone_verified", "social_platforms", "description", "business_type",
+        "user_type",
     }
     fields = {k: v for k, v in fields.items() if k in allowed_columns}
 
@@ -297,7 +299,7 @@ def _base_entrepreneur_query():
             e.id, e.name, e.description, e.socials, e.social_platforms,
             e.phone, e.email, e.business_address, e.website,
             e.photo_file_id, e.photo_base64, e.logo_base64, e.cover_base64,
-            e.gallery, e.business_type, e.phone_verified, e.created_at,
+            e.gallery, e.business_type, e.user_type, e.phone_verified, e.created_at,
             STRING_AGG(DISTINCT s.name, ',') AS services_csv,
             ROUND(AVG(r.score), 1) AS avg_rating,
             COUNT(DISTINCT r.id) AS rating_count
@@ -506,9 +508,42 @@ def add_favorite(user_telegram_id: int, entrepreneur_id: int):
                 (user_telegram_id, entrepreneur_id)
             )
             return True
-        except psycopg2.IntegrityError:
-            conn.rollback()
+        except Exception:
             return False
+
+
+# ---------- Customer helpers ----------
+
+def get_user_type(telegram_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT user_type FROM entrepreneurs WHERE telegram_id = %s", (telegram_id,)
+        ).fetchone()
+        return row["user_type"] if row else None
+
+
+def count_reviews_written(telegram_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM ratings WHERE rater_telegram_id = %s", (telegram_id,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def count_favorites(telegram_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM favorites WHERE user_telegram_id = %s", (telegram_id,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def upgrade_to_freelancer(telegram_id: int):
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE entrepreneurs SET user_type = 'freelancer' WHERE telegram_id = %s", (telegram_id,)
+        )
+    return True
 
 
 def remove_favorite(user_telegram_id: int, entrepreneur_id: int):
@@ -609,7 +644,7 @@ def get_public_profile(entrepreneur_id: int):
         row = conn.execute("""
             SELECT id, name, description, socials, social_platforms, phone, email,
                    business_address, website, photo_file_id, photo_base64,
-                   logo_base64, cover_base64, gallery, business_type,
+                   logo_base64, cover_base64, gallery, business_type, user_type,
                    created_at, phone_verified
             FROM entrepreneurs WHERE id = %s
         """, (entrepreneur_id,)).fetchone()

@@ -164,6 +164,10 @@ function emptyState(message) {
 let currentView = "home";
 
 function showView(name) {
+  if (name !== "stepper" && name !== "success" && name !== "admin" && currentUserType === null) {
+    openStepper(null);
+    return;
+  }
   if (name === "stepper") {
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
     document.getElementById("view-stepper").classList.add("active");
@@ -452,46 +456,95 @@ async function loadProfile() {
   const ratingText = profile.avg_rating ? `\u2b50 ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
   const memberSince = profile.created_at ? profile.created_at.slice(0, 4) : "\u2014";
   const servicesList = (profile.services || []).map(s => typeof s === "object" ? s.name : s).join(", ");
+  const isFreelancerProfile = profile.user_type === "freelancer";
 
-  container.innerHTML = `
-    <div class="profile-hero">
-      ${avatarHtml(profile, 76)}
-      <h2>${escapeHtml(profile.name)}</h2>
-      <p class="tagline">${escapeHtml(servicesList) || "No services yet"}</p>
-      <p class="rating-line">${ratingText}</p>
-      <div class="stat-row">
-        <div class="stat"><b>${(profile.services || []).length}</b><span>Services</span></div>
-        <div class="stat"><b>${profile.rating_count}</b><span>Reviews</span></div>
-        <div class="stat"><b>${memberSince}</b><span>Member</span></div>
+  if (isFreelancerProfile) {
+    container.innerHTML = `
+      <div class="profile-hero">
+        ${avatarHtml(profile, 76)}
+        <h2>${escapeHtml(profile.name)}</h2>
+        <p class="tagline">${escapeHtml(servicesList) || "No services yet"}</p>
+        <p class="rating-line">${ratingText}</p>
+        <div class="stat-row">
+          <div class="stat"><b>${(profile.services || []).length}</b><span>Services</span></div>
+          <div class="stat"><b>${profile.rating_count}</b><span>Reviews</span></div>
+          <div class="stat"><b>${memberSince}</b><span>Member</span></div>
+        </div>
       </div>
-    </div>
-    ${profile.description ? `<div class="detail-section"><div class="detail-section-title">About</div><p style="font-size:14px;color:var(--text-muted);line-height:1.6;margin:0;">${escapeHtml(profile.description)}</p></div>` : ""}
-    ${renderSocialPlatformsDisplay(profile)}
-    <div class="detail-section">
-      <div class="detail-section-title">Contact</div>
-      <div class="detail-list">
-        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
-        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
-        <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
-        <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
-        <div class="detail-row"><span class="label">Home address<span class="private-badge">Private</span></span><span class="value">${escapeHtml(profile.home_address) || "\u2014"}</span></div>
+      ${profile.description ? `<div class="detail-section"><div class="detail-section-title">About</div><p style="font-size:14px;color:var(--text-muted);line-height:1.6;margin:0;">${escapeHtml(profile.description)}</p></div>` : ""}
+      ${renderSocialPlatformsDisplay(profile)}
+      <div class="detail-section">
+        <div class="detail-section-title">Contact</div>
+        <div class="detail-list">
+          <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+          <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+          <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
+          <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
+          <div class="detail-row"><span class="label">Home address<span class="private-badge">Private</span></span><span class="value">${escapeHtml(profile.home_address) || "\u2014"}</span></div>
+        </div>
       </div>
-    </div>
-    <div class="menu-list">
-      <div class="menu-item" id="editListingBtn">Edit My Listing<span class="chevron">\u203a</span></div>
-      <div class="menu-item danger" id="removeListingBtn">Remove My Listing<span class="chevron">\u203a</span></div>
-    </div>`;
+      <div class="menu-list">
+        <div class="menu-item" id="editListingBtn">Edit My Listing<span class="chevron">\u203a</span></div>
+        <div class="menu-item danger" id="removeListingBtn">Remove My Listing<span class="chevron">\u203a</span></div>
+      </div>`;
 
-  document.getElementById("editListingBtn").addEventListener("click", () => openStepper(profile));
-  document.getElementById("removeListingBtn").addEventListener("click", () => {
-    tg.showConfirm("Remove your listing? This can't be undone.", async (confirmed) => {
-      if (!confirmed) return;
-      await apiPost("/api/unregister", { initData: tg.initData });
-      verifiedPhoneNumber = null;
-      tg.showAlert("You've been removed from the list.");
-      loadProfile();
+    document.getElementById("editListingBtn").addEventListener("click", () => openStepper(profile));
+    document.getElementById("removeListingBtn").addEventListener("click", () => {
+      tg.showConfirm("Remove your listing? This can't be undone.", async (confirmed) => {
+        if (!confirmed) return;
+        await apiPost("/api/unregister", { initData: tg.initData });
+        verifiedPhoneNumber = null;
+        currentUserType = null;
+        tg.showAlert("You've been removed from the list.");
+        loadProfile();
+      });
     });
-  });
+  } else {
+    container.innerHTML = `
+      <div class="profile-hero">
+        ${avatarHtml(profile, 76)}
+        <h2>${escapeHtml(profile.name)}</h2>
+        <p class="tagline">Member since ${memberSince}</p>
+        <div class="stat-row">
+          <div class="stat"><b>${profile.reviews_written || 0}</b><span>Reviews</span></div>
+          <div class="stat"><b>${profile.favorites_count || 0}</b><span>Favorites</span></div>
+          <div class="stat"><b>${memberSince}</b><span>Member</span></div>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Contact</div>
+        <div class="detail-list">
+          <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+          <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+        </div>
+      </div>
+      <div class="menu-list">
+        <div class="menu-item" id="upgradeToFreelancerBtn" style="color:var(--secondary);font-weight:600;">Become a Freelancer<span class="chevron">\u203a</span></div>
+        <div class="menu-item danger" id="removeListingBtn">Remove Account<span class="chevron">\u203a</span></div>
+      </div>`;
+
+    document.getElementById("upgradeToFreelancerBtn").addEventListener("click", async () => {
+      tg.showConfirm("Upgrade to a freelancer? You'll be able to list services and get discovered.", async (confirmed) => {
+        if (!confirmed) return;
+        const { ok } = await apiPost("/api/upgrade_to_freelancer", { initData: tg.initData });
+        if (ok) {
+          currentUserType = "freelancer";
+          tg.showAlert("Upgraded! Now set up your services.");
+          loadProfile();
+        }
+      });
+    });
+    document.getElementById("removeListingBtn").addEventListener("click", () => {
+      tg.showConfirm("Remove your account? This can't be undone.", async (confirmed) => {
+        if (!confirmed) return;
+        await apiPost("/api/unregister", { initData: tg.initData });
+        verifiedPhoneNumber = null;
+        currentUserType = null;
+        tg.showAlert("You've been removed.");
+        openStepper(null);
+      });
+    });
+  }
 }
 
 // ============================================================
@@ -678,7 +731,8 @@ let uploadedPhotoBase64 = null;
 let verifiedPhoneNumber = null;
 let phonePollTimer = null;
 let selectedOfferType = "service";
-const TOTAL_STEPS = 6;
+let selectedUserRole = null;
+let isFreelancer = false;
 
 const SOCIAL_PLATFORMS = [
   { id: "instagram", label: "Instagram", placeholder: "@username",
@@ -754,10 +808,10 @@ function openStepper(existingProfile) {
   currentStep = 1;
   stepperTags = existingProfile ? [...(existingProfile.services || []).map(s => typeof s === "object" ? s.name : s)] : [];
   uploadedPhotoBase64 = null;
-  uploadedLogoBase64 = null;
-  uploadedCoverBase64 = null;
   verifiedPhoneNumber = existingProfile?.phone_verified ? existingProfile.phone : null;
   selectedOfferType = existingProfile?.business_type || "service";
+  selectedUserRole = existingProfile?.user_type || null;
+  isFreelancer = selectedUserRole === "freelancer";
 
   document.getElementById("stepName").value = existingProfile?.name || (tg.initDataUnsafe?.user ? [tg.initDataUnsafe.user.first_name, tg.initDataUnsafe.user.last_name].filter(Boolean).join(" ") : "");
   document.getElementById("stepEmail").value = existingProfile?.email || "";
@@ -779,11 +833,9 @@ function openStepper(existingProfile) {
   refreshPhoneVerifiedUI();
   checkPhoneVerification();
 
-  // Reset photo previews
   document.getElementById("photoPreviewImg").style.display = "none";
   document.getElementById("photoPlaceholderIcon").style.display = "block";
   document.getElementById("photoUploadLabel").textContent = "Upload a photo";
-  // Reset steppers
 
   if (existingProfile?.id && (existingProfile.photo_base64 || existingProfile.photo_file_id)) {
     document.getElementById("photoPreviewImg").src = photoUrl(existingProfile.id);
@@ -794,10 +846,15 @@ function openStepper(existingProfile) {
 
   document.getElementById("stepperTitle").textContent = existingProfile ? "Edit Listing" : "Register";
 
-  // Reset offer type selection
   document.querySelectorAll(".offer-type-card").forEach(c => c.classList.remove("selected"));
   const selectedCard = document.querySelector(`.offer-type-card[data-offer="${selectedOfferType}"]`);
   if (selectedCard) selectedCard.classList.add("selected");
+
+  document.querySelectorAll(".offer-type-card[data-role]").forEach(c => c.classList.remove("selected"));
+  if (selectedUserRole) {
+    const roleCard = document.querySelector(`.offer-type-card[data-role="${selectedUserRole}"]`);
+    if (roleCard) roleCard.classList.add("selected");
+  }
 
   renderTags();
   goToStep(1);
@@ -916,19 +973,29 @@ setupPhotoUpload("photoUploadZone", "photoInput", "photoPreviewImg", "photoPlace
 // Social platforms: add button
 document.getElementById("addSocialPlatformBtn").addEventListener("click", addSocialPlatform);
 
+function getStepMapping() {
+  if (isFreelancer) {
+    return { panels: [1, 2, 3, 4, 5, 6, 7], totalSteps: 7, submitAfter: 7 };
+  }
+  return { panels: [1, 3, 6], totalSteps: 3, submitAfter: 3 };
+}
+
 function goToStep(step) {
   currentStep = step;
+  const mapping = getStepMapping();
+  const panelId = mapping.panels[step - 1];
+
   document.querySelectorAll(".step-panel").forEach(p => p.classList.remove("active"));
-  document.querySelector(`.step-panel[data-step-panel="${step}"]`).classList.add("active");
+  const panel = document.querySelector(`.step-panel[data-step-panel="${panelId}"]`);
+  if (panel) panel.classList.add("active");
 
-  const progress = ((step - 1) / (TOTAL_STEPS - 1)) * 100;
+  const progress = ((step - 1) / (mapping.totalSteps - 1)) * 100;
   document.getElementById("progressFill").style.width = `${progress}%`;
-  document.getElementById("stepLabel").textContent = `Step ${step} of ${TOTAL_STEPS}`;
+  document.getElementById("stepLabel").textContent = `Step ${step} of ${mapping.totalSteps}`;
   document.getElementById("stepBackBtn").style.visibility = step === 1 ? "hidden" : "visible";
-  document.getElementById("stepNextBtn").textContent = step === TOTAL_STEPS ? "Submit" : "Next";
+  document.getElementById("stepNextBtn").textContent = step === mapping.totalSteps ? "Submit" : "Next";
 
-  // Update step 3 title based on offer type
-  if (step === 3) {
+  if (panelId === 4) {
     const title = document.getElementById("step3Title");
     const productFields = document.getElementById("productFields");
     if (selectedOfferType === "product") {
@@ -943,8 +1010,7 @@ function goToStep(step) {
     }
   }
 
-  // Step 6: home address requirement
-  if (step === 6) {
+  if (panelId === 7) {
     const hasBusinessAddress = document.getElementById("stepBusinessAddress").value.trim().length > 0;
     const badge = document.getElementById("homeAddressStepBadge");
     const labelBadge = document.getElementById("homeAddressLabelBadge");
@@ -965,8 +1031,17 @@ document.getElementById("stepBackBtn").addEventListener("click", () => {
   if (currentStep > 1) goToStep(currentStep - 1);
 });
 
+// Role choice selection
+document.querySelectorAll(".offer-type-card[data-role]").forEach(card => {
+  card.addEventListener("click", () => {
+    document.querySelectorAll(".offer-type-card[data-role]").forEach(c => c.classList.remove("selected"));
+    card.classList.add("selected");
+    selectedUserRole = card.dataset.role;
+  });
+});
+
 // Offer type selection
-document.querySelectorAll(".offer-type-card").forEach(card => {
+document.querySelectorAll(".offer-type-card[data-offer]").forEach(card => {
   card.addEventListener("click", () => {
     document.querySelectorAll(".offer-type-card").forEach(c => c.classList.remove("selected"));
     card.classList.add("selected");
@@ -975,12 +1050,21 @@ document.querySelectorAll(".offer-type-card").forEach(card => {
 });
 
 document.getElementById("stepNextBtn").addEventListener("click", async () => {
-  if (currentStep === 1) {
-    if (!selectedOfferType) return tg.showAlert("Please select what you offer.");
-    goToStep(2);
+  const mapping = getStepMapping();
+  const panelId = mapping.panels[currentStep - 1];
+
+  if (panelId === 1) {
+    if (!selectedUserRole) return tg.showAlert("Please select how you'd like to use GrowthHub.");
+    isFreelancer = selectedUserRole === "freelancer";
+    goToStep(currentStep + 1);
     return;
   }
-  if (currentStep === 2) {
+  if (panelId === 2) {
+    if (!selectedOfferType) return tg.showAlert("Please select what you offer.");
+    goToStep(currentStep + 1);
+    return;
+  }
+  if (panelId === 3) {
     const name = document.getElementById("stepName").value.trim();
     const email = document.getElementById("stepEmail").value.trim();
     if (!name) return tg.showAlert("Please enter your name.");
@@ -989,51 +1073,79 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
       if (!justVerified) return tg.showAlert("Please verify your phone first.");
     }
     if (!email.includes("@") || !email.split("@").pop().includes(".")) return tg.showAlert("Please enter a valid email.");
-    goToStep(3);
+    if (isFreelancer) {
+      goToStep(currentStep + 1);
+    } else {
+      goToStep(currentStep + 1);
+    }
     return;
   }
-  if (currentStep === 3) {
+  if (panelId === 4) {
     if (!stepperTags.length) return tg.showAlert("Add at least one service or product.");
-    goToStep(4);
+    goToStep(currentStep + 1);
     return;
   }
-  if (currentStep === 4) {
-    goToStep(5);
+  if (panelId === 5) {
+    goToStep(currentStep + 1);
     return;
   }
-  if (currentStep === 5) {
+  if (panelId === 6) {
     if (!uploadedPhotoBase64 && !currentProfile?.id) return tg.showAlert("Please upload a photo.");
-    goToStep(6);
+    if (isFreelancer) {
+      goToStep(currentStep + 1);
+    } else {
+      submitRegistration();
+    }
     return;
   }
 
-  // Step 6 -> submit
-  const homeAddress = document.getElementById("stepHomeAddress").value.trim();
-  const businessAddress = document.getElementById("stepBusinessAddress").value.trim();
-  if (!homeAddress && !businessAddress) {
-    return tg.showAlert("Add a business address, or a home address if you work from home.");
+  // Freelancer step 7 -> submit
+  submitRegistration();
+});
+
+document.getElementById("stepperBack").addEventListener("click", () => showView("profile"));
+
+async function submitRegistration() {
+  if (isFreelancer) {
+    const homeAddress = document.getElementById("stepHomeAddress").value.trim();
+    const businessAddress = document.getElementById("stepBusinessAddress").value.trim();
+    if (!homeAddress && !businessAddress) {
+      return tg.showAlert("Add a business address, or a home address if you work from home.");
+    }
   }
 
   const payload = {
     initData: tg.initData,
     name: document.getElementById("stepName").value.trim(),
     email: document.getElementById("stepEmail").value.trim(),
-    services: stepperTags,
-    social_platforms: socialPlatforms.filter(sp => sp.handle.trim()),
-    business_address: businessAddress,
-    website: document.getElementById("stepWebsite").value.trim(),
-    home_address: homeAddress,
-    description: document.getElementById("stepDescription").value.trim(),
-    business_type: selectedOfferType,
-    price: Number(document.getElementById("stepPrice").value) || 0,
-    delivery_available: document.getElementById("stepDelivery").checked ? 1 : 0,
+    user_type: isFreelancer ? "freelancer" : "customer",
   };
+
+  if (isFreelancer) {
+    payload.services = stepperTags;
+    payload.social_platforms = socialPlatforms.filter(sp => sp.handle.trim());
+    payload.business_address = document.getElementById("stepBusinessAddress").value.trim();
+    payload.website = document.getElementById("stepWebsite").value.trim();
+    payload.home_address = document.getElementById("stepHomeAddress").value.trim();
+    payload.description = document.getElementById("stepDescription").value.trim();
+    payload.business_type = selectedOfferType;
+    payload.price = Number(document.getElementById("stepPrice").value) || 0;
+    payload.delivery_available = document.getElementById("stepDelivery").checked ? 1 : 0;
+  }
+
   if (uploadedPhotoBase64) payload.photo_base64 = uploadedPhotoBase64;
   else if (currentProfile?.id) payload.keep_existing_photo = true;
 
-
   const { ok, data } = await apiPost("/api/register", payload);
   if (ok) {
+    currentUserType = isFreelancer ? "freelancer" : "customer";
+    if (isFreelancer) {
+      document.getElementById("successTitle").textContent = "You're Listed!";
+      document.getElementById("successDesc").textContent = "Your profile is now visible to people searching for your services.";
+    } else {
+      document.getElementById("successTitle").textContent = "Welcome!";
+      document.getElementById("successDesc").textContent = "You're all set. Start exploring services and freelancers near you.";
+    }
     showView("success");
   } else if (data?.error === "phone_not_verified") {
     tg.showAlert("Phone verification expired \u2014 please verify again.");
@@ -1041,9 +1153,7 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
   } else {
     tg.showAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong.");
   }
-});
-
-document.getElementById("stepperBack").addEventListener("click", () => showView("profile"));
+}
 
 // ============================================================
 // Theme
@@ -1130,5 +1240,15 @@ document.getElementById("adminRemoveBtn").addEventListener("click", () => {
 });
 
 // ---- Boot ----
-loadHome();
-checkAdminAccess();
+async function boot() {
+  const profile = await apiGet("/api/profile");
+  if (profile && !profile.error && profile.id) {
+    currentUserType = profile.user_type || "freelancer";
+    loadHome();
+    checkAdminAccess();
+  } else {
+    openStepper(null);
+  }
+}
+let currentUserType = null;
+boot();
