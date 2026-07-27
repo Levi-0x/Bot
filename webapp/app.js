@@ -706,19 +706,21 @@ async function openDetail(entrepreneurId) {
     <div class="detail-section">
       <div class="detail-section-title">Contact</div>
       <div class="detail-list">
-        <div class="detail-row"><span class="label">Phone</span><span class="value">${profile.phone ? `<a href="tel:${escapeHtml(profile.phone)}" class="detail-link">${escapeHtml(profile.phone)}</a>` : "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
-        <div class="detail-row"><span class="label">Email</span><span class="value">${profile.email ? `<a href="mailto:${escapeHtml(profile.email)}" class="detail-link">${escapeHtml(profile.email)}</a>` : "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
         <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
         <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
       </div>
     </div>
-    <button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>
+    ${profile.telegram_username && currentProfile?.id !== entrepreneurId ? `<a class="btn-telegram" href="https://t.me/${escapeHtml(profile.telegram_username)}" target="_blank"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0088cc"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg> Contact on Telegram</a>` : ""}
+    ${currentProfile?.id === entrepreneurId ? "" : `<button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>`}
     <div class="detail-section" style="margin-top:22px;">
       <div class="detail-section-title">Reviews</div>
       <div class="reviews-list">${reviewsHtml}</div>
     </div>`;
 
-  document.getElementById("detailRateBtn").addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
+  const rateBtn = document.getElementById("detailRateBtn");
+  if (rateBtn) rateBtn.addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
 }
 
 function updateFavButton() {
@@ -1299,15 +1301,79 @@ document.getElementById("removeAdminBtn").addEventListener("click", async () => 
   if (data?.error === "is_root_admin") tg.showAlert("Root admin \u2014 remove via Render.");
   else { tg.showAlert(ok && data.removed ? "Removed." : "Not found."); if (ok && data.removed) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); } }
 });
-document.getElementById("adminRemoveBtn").addEventListener("click", () => {
-  const name = document.getElementById("adminRemoveName").value.trim();
-  if (!name) return tg.showAlert("Enter a name.");
+
+// ---- Search Listings ----
+document.getElementById("adminSearchBtn").addEventListener("click", async () => {
+  const q = document.getElementById("adminSearchInput").value.trim();
+  if (!q) return;
+  const data = await apiGet(`/api/admin/search_listings?q=${encodeURIComponent(q)}`);
+  const container = document.getElementById("adminSearchResults");
+  const results = data?.results || [];
+  if (!results.length) { container.innerHTML = `<p class="field-hint" style="margin-top:8px;">No results.</p>`; return; }
+  container.innerHTML = results.map(r => `
+    <div class="admin-listing-row" data-id="${r.id}">
+      <div><b>#${r.id}</b> ${escapeHtml(r.name)} <span class="field-hint">(${r.user_type})</span></div>
+      <div class="field-hint">${r.suspended ? "SUSPENDED" : "Active"} | ${r.identity_verified ? "Verified" : ""} | ${r.avg_rating ? "\u2b50 " + r.avg_rating : ""}</div>
+      <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
+        ${r.suspended
+          ? `<button class="btn-small btn-green" onclick="adminUnsuspend(${r.id})">Unsuspend</button>`
+          : `<button class="btn-small btn-orange" onclick="adminSuspend(${r.id})">Suspend</button>`}
+        <button class="btn-small" onclick="adminToggleFeature(${r.id}, ${!r.force_featured})">${r.force_featured ? "Unfeature" : "Feature"}</button>
+        <button class="btn-small danger-text" onclick="adminForceRemove('${escapeHtml(r.name)}')">Remove</button>
+      </div>
+    </div>`).join("");
+});
+
+async function adminSuspend(id) {
+  const { ok } = await apiPost(`/api/admin/listings/${id}/suspend`, { initData: tg.initData });
+  tg.showAlert(ok ? "Suspended." : "Error.");
+  if (ok) document.getElementById("adminSearchBtn").click();
+}
+async function adminUnsuspend(id) {
+  const { ok } = await apiPost(`/api/admin/listings/${id}/unsuspend`, { initData: tg.initData });
+  tg.showAlert(ok ? "Unsuspended." : "Error.");
+  if (ok) document.getElementById("adminSearchBtn").click();
+}
+async function adminToggleFeature(id, featured) {
+  const { ok } = await apiPost("/api/admin/feature", { initData: tg.initData, listing_id: id, featured });
+  tg.showAlert(ok ? (featured ? "Featured." : "Unfeatured.") : "Error.");
+  if (ok) document.getElementById("adminSearchBtn").click();
+}
+function adminForceRemove(name) {
   tg.showConfirm(`Remove "${name}"?`, async (confirmed) => {
     if (!confirmed) return;
     const { ok, data } = await apiPost("/api/admin/forceremove", { initData: tg.initData, name });
     tg.showAlert(ok && data.removed ? "Removed." : "Not found.");
-    if (ok && data.removed) document.getElementById("adminRemoveName").value = "";
+    if (ok) document.getElementById("adminSearchBtn").click();
   });
+}
+
+// ---- Merge Services ----
+document.getElementById("adminMergeBtn").addEventListener("click", async () => {
+  const source = Number(document.getElementById("adminMergeSource").value.trim());
+  const target = Number(document.getElementById("adminMergeTarget").value.trim());
+  if (!source || !target) return tg.showAlert("Enter both service IDs.");
+  if (source === target) return tg.showAlert("Source and target must differ.");
+  tg.showConfirm(`Merge service #${source} into #${target}?`, async (confirmed) => {
+    if (!confirmed) return;
+    const { ok, data } = await apiPost("/api/admin/merge_services", { initData: tg.initData, source_id: source, target_id: target });
+    tg.showAlert(data?.message || (ok ? "Done." : "Error."));
+    if (ok) { document.getElementById("adminMergeSource").value = ""; document.getElementById("adminMergeTarget").value = ""; }
+  });
+});
+
+// ---- Audit Log ----
+document.getElementById("adminAuditBtn").addEventListener("click", async () => {
+  const data = await apiGet("/api/admin/audit_log?limit=30");
+  const container = document.getElementById("adminAuditLog");
+  if (!data || !data.length) { container.innerHTML = `<p class="field-hint">No entries.</p>`; return; }
+  container.innerHTML = data.map(r => `
+    <div class="admin-audit-row">
+      <span class="field-hint">${r.created_at ? r.created_at.slice(0, 16) : ""}</span>
+      <b>${escapeHtml(r.action)}</b>
+      <span class="field-hint">${r.target_type ? r.target_type + "#" + (r.target_id || "") : ""}</span>
+      ${r.details ? `<span class="field-hint">${escapeHtml(r.details)}</span>` : ""}
+    </div>`).join("");
 });
 
 // ---- Boot ----

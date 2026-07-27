@@ -299,6 +299,12 @@
       <textarea id="adminBroadcastText" rows="3" placeholder="Message to all entrepreneurs"></textarea>
       <button class="btn-primary" id="adminBroadcastBtn">Send Broadcast</button>
     </div>
+    <div class="section-head"><h2>Search Listings</h2></div>
+    <div class="admin-card">
+      <input type="text" id="adminSearchInput" placeholder="Search by name, email, or ID" />
+      <button class="btn-primary" id="adminSearchBtn">Search</button>
+      <div id="adminSearchResults"></div>
+    </div>
     <div class="section-head"><h2>Manage Admins</h2></div>
     <div class="admin-card">
       <div id="adminListDisplay" class="field-hint" style="margin-bottom:4px;"></div>
@@ -306,10 +312,16 @@
       <button class="btn-primary" id="addAdminBtn">Add Admin</button>
       <button class="btn-secondary danger-text" id="removeAdminBtn">Remove Admin</button>
     </div>
-    <div class="section-head"><h2>Remove Listing</h2></div>
+    <div class="section-head"><h2>Manage Services</h2></div>
     <div class="admin-card">
-      <input type="text" id="adminRemoveName" placeholder="Entrepreneur name" />
-      <button class="btn-secondary danger-text" id="adminRemoveBtn">Remove Listing</button>
+      <input type="text" id="adminMergeSource" placeholder="Source service ID (to merge from)" inputmode="numeric" />
+      <input type="text" id="adminMergeTarget" placeholder="Target service ID (to merge into)" inputmode="numeric" />
+      <button class="btn-secondary" id="adminMergeBtn">Merge Services</button>
+    </div>
+    <div class="section-head"><h2>Audit Log</h2></div>
+    <div class="admin-card">
+      <button class="btn-secondary" id="adminAuditBtn">Load Audit Log</button>
+      <div id="adminAuditLog"></div>
     </div>
   </section>
 

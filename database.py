@@ -225,6 +225,7 @@ def init_db():
             "force_featured": "BOOLEAN DEFAULT FALSE",
             "plan": "TEXT DEFAULT 'free'",
             "plan_expires_at": "TIMESTAMPTZ",
+            "telegram_username": "TEXT",
         }
         for column, col_type in entrepreneur_migrations.items():
             conn.execute(f"ALTER TABLE entrepreneurs ADD COLUMN IF NOT EXISTS {column} {col_type}")
@@ -270,6 +271,7 @@ def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[st
         "gallery", "business_address", "website", "home_address",
         "phone_verified", "social_platforms", "description", "business_type",
         "user_type", "latitude", "longitude", "location_captured_at",
+        "telegram_username",
     }
     fields = {k: v for k, v in fields.items() if k in allowed_columns}
 
@@ -500,7 +502,7 @@ def find_by_service(query: str, category: str = "", service_type: str = "", lat:
             SELECT
                 e.id, e.name, e.description, e.socials, e.social_platforms,
                 e.phone, e.email, e.business_address, e.website,
-            e.photo_file_id, e.gallery, e.business_type, e.user_type, e.phone_verified, e.identity_verified, e.created_at,
+            e.photo_file_id, e.gallery, e.business_type, e.user_type, e.phone_verified, e.identity_verified, e.telegram_username, e.created_at,
                 STRING_AGG(DISTINCT s.name, ',') AS services_csv,
                 ROUND(AVG(r.score), 1) AS avg_rating,
                 COUNT(DISTINCT r.id) AS rating_count
@@ -745,18 +747,31 @@ def merge_services(source_service_id: int, target_service_id: int):
 
 def get_all_categories():
     with get_connection() as conn:
-        rows = conn.execute("SELECT DISTINCT category FROM services ORDER BY category").fetchall()
-        return [row["category"] for row in rows]
+        rows = conn.execute("SELECT * FROM categories ORDER BY name ASC").fetchall()
+        return [dict(row) for row in rows]
 
 
-def add_category(name: str):
+def add_category(name: str, icon: str = "", color: str = ""):
     with get_connection() as conn:
-        conn.execute("INSERT INTO services (name, category) VALUES (%s, %s) ON CONFLICT DO NOTHING", (name.strip(), name.strip()))
+        conn.execute(
+            "INSERT INTO categories (name, icon, color) VALUES (%s, %s, %s) ON CONFLICT (name) DO NOTHING",
+            (name.strip().lower(), icon, color)
+        )
 
 
 def delete_category(category: str):
     with get_connection() as conn:
-        conn.execute("DELETE FROM services WHERE category = %s", (category,))
+        in_use = conn.execute(
+            "SELECT COUNT(*) AS c FROM services WHERE category = %s", (category,)
+        ).fetchone()["c"]
+        if in_use > 0:
+            return False, f'"{category}" still has {in_use} service(s) using it — reassign or remove those first.'
+        result = conn.execute(
+            "DELETE FROM categories WHERE name = %s RETURNING name", (category,)
+        ).fetchone()
+        if not result:
+            return False, f'No category named "{category}" found.'
+        return True, f'Deleted category "{category}".'
 
 
 def set_force_featured(entrepreneur_id: int, featured: bool):
@@ -990,7 +1005,7 @@ def get_public_profile(entrepreneur_id: int):
         row = conn.execute("""
             SELECT id, name, description, socials, social_platforms, phone, email,
                    business_address, website, photo_file_id, gallery, business_type, user_type,
-                   created_at, phone_verified, identity_verified
+                   created_at, phone_verified, identity_verified, telegram_username
             FROM entrepreneurs WHERE id = %s AND user_type = 'freelancer' AND suspended IS NOT TRUE
         """, (entrepreneur_id,)).fetchone()
         if not row:

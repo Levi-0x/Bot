@@ -254,6 +254,9 @@ def api_register():
         except (ValueError, TypeError):
             pass
 
+    if user.get("username"):
+        fields["telegram_username"] = user["username"]
+
     db.register_entrepreneur(user["id"], fields, services if user_type == "freelancer" else [])
     return jsonify({"status": "ok"})
 
@@ -621,7 +624,7 @@ def api_admin_add_category():
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"error": "missing_name"}), 400
-    db.add_category(name)
+    db.add_category(name, icon=body.get("icon", ""), color=body.get("color", ""))
     db.log_admin_action(admin_user["id"], "add_category", target_type="category", target_id=name)
     return jsonify({"status": "ok"})
 
@@ -633,9 +636,9 @@ def api_admin_delete_category(category):
     admin_user = require_admin(body.get("initData", ""), bot_token)
     if not admin_user:
         return jsonify({"error": "forbidden"}), 403
-    db.delete_category(category)
-    db.log_admin_action(admin_user["id"], "delete_category", target_type="category", target_id=category)
-    return jsonify({"status": "ok"})
+    success, message = db.delete_category(category)
+    db.log_admin_action(admin_user["id"], "delete_category", target_type="category", target_id=category, details=message)
+    return jsonify({"status": "ok" if success else "error", "message": message}), (200 if success else 409)
 
 
 @flask_app.route("/api/admin/feature", methods=["POST"])
