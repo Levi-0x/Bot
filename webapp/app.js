@@ -122,6 +122,36 @@ function photoUrl(entrepreneurId) {
   return `/api/photo/${entrepreneurId}?initData=${encodeURIComponent(tg.initData)}`;
 }
 
+// ---- Location ----
+let userLat = null;
+let userLng = null;
+
+function requestUserLocation() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      userLat = pos.coords.latitude;
+      userLng = pos.coords.longitude;
+      localStorage.setItem("gh_lat", userLat);
+      localStorage.setItem("gh_lng", userLng);
+    },
+    () => {},
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+  );
+}
+
+function loadSavedLocation() {
+  const lat = localStorage.getItem("gh_lat");
+  const lng = localStorage.getItem("gh_lng");
+  if (lat && lng) {
+    userLat = parseFloat(lat);
+    userLng = parseFloat(lng);
+  }
+}
+
+loadSavedLocation();
+requestUserLocation();
+
 function avatarHtml(entrepreneur, size) {
   const style = size ? `width:${size}px;height:${size}px;font-size:${size * 0.34}px;` : "";
   if (entrepreneur.id && (entrepreneur.photo_base64 || entrepreneur.photo_file_id)) {
@@ -344,31 +374,64 @@ function setupExploreTypeTabs() {
   });
 }
 
-async function runSearch(query) {
+let searchOffset = 0;
+const SEARCH_LIMIT = 20;
+let searchTotal = 0;
+let searchQuery = "";
+
+async function runSearch(query, append = false) {
   const container = document.getElementById("exploreResults");
   if (!query) {
     container.innerHTML = "";
     return;
   }
+  if (!append) {
+    searchOffset = 0;
+    searchQuery = query;
+    container.innerHTML = "";
+  }
   const typeParam = exploreActiveType !== "all" ? `&type=${exploreActiveType}` : "";
-  const results = asArray(await apiGet(`/api/find?service=${encodeURIComponent(query)}${typeParam}`));
-  container.innerHTML = results.length
-    ? results.map(r => renderResultCard(r)).join("")
-    : emptyState(`No results for "${escapeHtml(query)}". Try another search.`);
-  wireResultCardClicks(container);
+  const locParam = (userLat && userLng) ? `&lat=${userLat}&lng=${userLng}` : "";
+  const data = await apiGet(`/api/find?service=${encodeURIComponent(searchQuery)}${typeParam}${locParam}&limit=${SEARCH_LIMIT}&offset=${searchOffset}`);
+  const results = asArray(data?.results || data);
+  searchTotal = data?.total || results.length;
+  searchOffset += results.length;
+
+  if (!append) container.innerHTML = "";
+  if (results.length) {
+    container.insertAdjacentHTML("beforeend", results.map(r => renderResultCard(r)).join(""));
+    wireResultCardClicks(container);
+  }
+  const existingBtn = container.querySelector(".load-more-btn");
+  if (existingBtn) existingBtn.remove();
+  if (searchOffset < searchTotal) {
+    const btn = document.createElement("button");
+    btn.className = "load-more-btn";
+    btn.textContent = `Load More (${searchOffset}/${searchTotal})`;
+    btn.onclick = () => runSearch(searchQuery, true);
+    container.appendChild(btn);
+  } else if (searchOffset > 0) {
+    container.insertAdjacentHTML("beforeend", `<p class="search-count">${searchTotal} result${searchTotal !== 1 ? "s" : ""}</p>`);
+  }
 }
 
 function renderResultCard(r) {
   const ratingText = r.avg_rating ? `\u2b50 ${r.avg_rating} (${r.rating_count})` : "No ratings yet";
   const rawService = (r.services && r.services[0]) || "";
   const serviceLabel = typeof rawService === "object" ? rawService.name : rawService;
+  const distText = (r.distance_km != null && userLat && userLng)
+    ? `<span class="distance-text">${r.distance_km < 1 ? Math.round(r.distance_km * 1000) + "m" : r.distance_km.toFixed(1) + "km"} away</span>`
+    : "";
+  const verifiedBadge = r.identity_verified
+    ? `<span class="verified-badge-inline" title="Verified"><svg width="14" height="14" viewBox="0 0 24 24" fill="#0F9B8E"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>`
+    : "";
   return `
     <div class="result-card" data-open-id="${r.id}">
       ${avatarHtml(r)}
       <div class="result-info">
-        <h3>${escapeHtml(r.name)}</h3>
+        <h3>${escapeHtml(r.name)}${verifiedBadge}</h3>
         <p class="result-service">${escapeHtml(serviceLabel)}</p>
-        <p class="result-rating">${ratingText}</p>
+        <p class="result-rating">${ratingText}${distText}</p>
       </div>
     </div>`;
 }
@@ -580,6 +643,9 @@ async function openDetail(entrepreneurId) {
 
   const ratingText = profile.avg_rating ? `\u2b50 ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
   const servicesList = (profile.services || []).map(s => typeof s === "object" ? s.name : s).join(", ");
+  const verifiedBadge = profile.identity_verified
+    ? `<span class="verified-badge-inline" title="Verified" style="margin-left:6px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0F9B8E"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>`
+    : "";
 
   // Gallery
   let galleryHtml = "";
@@ -629,7 +695,7 @@ async function openDetail(entrepreneurId) {
   container.innerHTML = `
     <div class="profile-hero">
       ${avatarHtml(profile, 76)}
-      <h2>${escapeHtml(profile.name)}</h2>
+      <h2>${escapeHtml(profile.name)}${verifiedBadge}</h2>
       <p class="tagline">${escapeHtml(servicesList) || ""}</p>
       <p class="rating-line">${ratingText}</p>
     </div>
@@ -640,8 +706,8 @@ async function openDetail(entrepreneurId) {
     <div class="detail-section">
       <div class="detail-section-title">Contact</div>
       <div class="detail-list">
-        <div class="detail-row"><span class="label">Phone</span><span class="value">${escapeHtml(profile.phone) || "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
-        <div class="detail-row"><span class="label">Email</span><span class="value">${escapeHtml(profile.email) || "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+        <div class="detail-row"><span class="label">Phone</span><span class="value">${profile.phone ? `<a href="tel:${escapeHtml(profile.phone)}" class="detail-link">${escapeHtml(profile.phone)}</a>` : "\u2014"}</span>${profile.phone ? `<button class="copy-icon" data-copy="${escapeHtml(profile.phone)}" aria-label="Copy phone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
+        <div class="detail-row"><span class="label">Email</span><span class="value">${profile.email ? `<a href="mailto:${escapeHtml(profile.email)}" class="detail-link">${escapeHtml(profile.email)}</a>` : "\u2014"}</span>${profile.email ? `<button class="copy-icon" data-copy="${escapeHtml(profile.email)}" aria-label="Copy email"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>` : ""}</div>
         <div class="detail-row"><span class="label">Business address</span><span class="value">${escapeHtml(profile.business_address) || "\u2014"}</span></div>
         <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
       </div>
@@ -1135,6 +1201,11 @@ async function submitRegistration() {
 
   if (uploadedPhotoBase64) payload.photo_base64 = uploadedPhotoBase64;
   else if (currentProfile?.id) payload.keep_existing_photo = true;
+
+  if (userLat != null && userLng != null) {
+    payload.lat = userLat;
+    payload.lng = userLng;
+  }
 
   const { ok, data } = await apiPost("/api/register", payload);
   if (ok) {

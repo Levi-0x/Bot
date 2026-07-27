@@ -121,12 +121,21 @@ def api_entrepreneur_detail(entrepreneur_id):
 @flask_app.route("/api/find")
 def api_find():
     bot_token = bot_module.load_token()
-    if not validate_init_data(request.args.get("initData", ""), bot_token):
+    user = validate_init_data(request.args.get("initData", ""), bot_token)
+    if not user:
         return jsonify({"error": "invalid_init_data"}), 401
     service_query = request.args.get("service", "")
     category = request.args.get("category", "")
     service_type = request.args.get("type", "")
-    return jsonify(db.find_by_service(service_query, category=category, service_type=service_type))
+    lat = request.args.get("lat", type=float)
+    lng = request.args.get("lng", type=float)
+    max_distance = request.args.get("max_distance", type=float)
+    limit = request.args.get("limit", 20, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    result = db.find_by_service(service_query, category=category, service_type=service_type, lat=lat, lng=lng, max_distance_km=max_distance, limit=limit, offset=offset)
+    if service_query:
+        db.log_search(service_query, result.get("total", 0), user["id"])
+    return jsonify(result)
 
 
 # ---------- Authenticated API ----------
@@ -233,6 +242,17 @@ def api_register():
         gallery = body.get("gallery")
         if gallery is not None and isinstance(gallery, list):
             fields["gallery"] = json.dumps(gallery)
+
+    lat = body.get("lat")
+    lng = body.get("lng")
+    if lat is not None and lng is not None:
+        import datetime
+        try:
+            fields["latitude"] = float(lat)
+            fields["longitude"] = float(lng)
+            fields["location_captured_at"] = datetime.datetime.utcnow()
+        except (ValueError, TypeError):
+            pass
 
     db.register_entrepreneur(user["id"], fields, services if user_type == "freelancer" else [])
     return jsonify({"status": "ok"})
@@ -387,7 +407,8 @@ def api_admin_stats():
 def api_admin_broadcast():
     bot_token = bot_module.load_token()
     body = request.get_json(force=True, silent=True) or {}
-    if not require_admin(body.get("initData", ""), bot_token):
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
         return jsonify({"error": "forbidden"}), 403
     message = (body.get("message") or "").strip()
     if not message:
@@ -410,6 +431,7 @@ def api_admin_broadcast():
         except Exception as e:
             logger.warning(f"Broadcast (web) failed for {telegram_id}: {e}")
             failed += 1
+    db.log_admin_action(admin_user["id"], "broadcast", details=f"sent={sent} failed={failed}")
     return jsonify({"status": "ok", "sent": sent, "failed": failed})
 
 
@@ -435,6 +457,7 @@ def api_admin_add():
     if not isinstance(new_admin_id, int):
         return jsonify({"error": "invalid_telegram_id"}), 400
     db.add_admin(new_admin_id, added_by=admin_user["id"])
+    db.log_admin_action(admin_user["id"], "add_admin", target_type="user", target_id=str(new_admin_id))
     return jsonify({"status": "ok"})
 
 
@@ -442,7 +465,8 @@ def api_admin_add():
 def api_admin_remove():
     bot_token = bot_module.load_token()
     body = request.get_json(force=True, silent=True) or {}
-    if not require_admin(body.get("initData", ""), bot_token):
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
         return jsonify({"error": "forbidden"}), 403
     target_id = body.get("telegram_id")
     if not isinstance(target_id, int):
@@ -452,6 +476,7 @@ def api_admin_remove():
     if str(target_id) in root_ids:
         return jsonify({"error": "is_root_admin"}), 400
     removed = db.remove_admin(target_id)
+    db.log_admin_action(admin_user["id"], "remove_admin", target_type="user", target_id=str(target_id))
     return jsonify({"status": "ok", "removed": removed})
 
 
@@ -459,13 +484,230 @@ def api_admin_remove():
 def api_admin_forceremove():
     bot_token = bot_module.load_token()
     body = request.get_json(force=True, silent=True) or {}
-    if not require_admin(body.get("initData", ""), bot_token):
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
         return jsonify({"error": "forbidden"}), 403
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"error": "missing_name"}), 400
     success, telegram_id = db.force_delete_by_name(name)
+    db.log_admin_action(admin_user["id"], "force_remove", target_type="listing", target_id=name, details=f"removed={success}")
     return jsonify({"status": "ok", "removed": success})
+
+
+@flask_app.route("/api/admin/reviews/<int:review_id>", methods=["DELETE"])
+def api_admin_delete_review(review_id):
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    deleted = db.delete_review(review_id)
+    db.log_admin_action(admin_user["id"], "delete_review", target_type="review", target_id=str(review_id))
+    return jsonify({"status": "ok", "deleted": deleted})
+
+
+@flask_app.route("/api/admin/reviews/<int:review_id>/hide", methods=["PATCH"])
+def api_admin_hide_review(review_id):
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    hidden = db.hide_review(review_id)
+    db.log_admin_action(admin_user["id"], "hide_review", target_type="review", target_id=str(review_id))
+    return jsonify({"status": "ok", "hidden": hidden})
+
+
+@flask_app.route("/api/admin/reviews/<int:review_id>/unhide", methods=["PATCH"])
+def api_admin_unhide_review(review_id):
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    unhid = db.unhide_review(review_id)
+    db.log_admin_action(admin_user["id"], "unhide_review", target_type="review", target_id=str(review_id))
+    return jsonify({"status": "ok", "unhidden": unhid})
+
+
+@flask_app.route("/api/admin/listings/<int:listing_id>/suspend", methods=["PATCH"])
+def api_admin_suspend_listing(listing_id):
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    suspended = db.suspend_listing(listing_id)
+    db.log_admin_action(admin_user["id"], "suspend_listing", target_type="listing", target_id=str(listing_id))
+    return jsonify({"status": "ok", "suspended": suspended})
+
+
+@flask_app.route("/api/admin/listings/<int:listing_id>/unsuspend", methods=["PATCH"])
+def api_admin_unsuspend_listing(listing_id):
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    unsuspended = db.unsuspend_listing(listing_id)
+    db.log_admin_action(admin_user["id"], "unsuspend_listing", target_type="listing", target_id=str(listing_id))
+    return jsonify({"status": "ok", "unsuspended": unsuspended})
+
+
+@flask_app.route("/api/admin/audit_log")
+def api_admin_audit_log():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    limit = request.args.get("limit", 50, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    return jsonify(db.get_admin_audit_log(limit=limit, offset=offset))
+
+
+@flask_app.route("/api/admin/listing/<int:listing_id>")
+def api_admin_get_listing(listing_id):
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    profile = db.admin_get_listing(listing_id)
+    if not profile:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify(profile)
+
+
+@flask_app.route("/api/admin/search_listings")
+def api_admin_search_listings():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    query = request.args.get("q", "")
+    limit = request.args.get("limit", 20, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    return jsonify(db.admin_search_listings(query, limit=limit, offset=offset))
+
+
+@flask_app.route("/api/admin/merge_services", methods=["POST"])
+def api_admin_merge_services():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    source_id = body.get("source_id")
+    target_id = body.get("target_id")
+    if not isinstance(source_id, int) or not isinstance(target_id, int):
+        return jsonify({"error": "invalid_ids"}), 400
+    success, msg = db.merge_services(source_id, target_id)
+    db.log_admin_action(admin_user["id"], "merge_services", target_type="service", target_id=f"{source_id}->{target_id}", details=msg)
+    return jsonify({"status": "ok" if success else "error", "message": msg})
+
+
+@flask_app.route("/api/admin/categories")
+def api_admin_categories():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify(db.get_all_categories())
+
+
+@flask_app.route("/api/admin/categories", methods=["POST"])
+def api_admin_add_category():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    name = (body.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "missing_name"}), 400
+    db.add_category(name)
+    db.log_admin_action(admin_user["id"], "add_category", target_type="category", target_id=name)
+    return jsonify({"status": "ok"})
+
+
+@flask_app.route("/api/admin/categories/<category>", methods=["DELETE"])
+def api_admin_delete_category(category):
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    db.delete_category(category)
+    db.log_admin_action(admin_user["id"], "delete_category", target_type="category", target_id=category)
+    return jsonify({"status": "ok"})
+
+
+@flask_app.route("/api/admin/feature", methods=["POST"])
+def api_admin_feature():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    admin_user = require_admin(body.get("initData", ""), bot_token)
+    if not admin_user:
+        return jsonify({"error": "forbidden"}), 403
+    listing_id = body.get("listing_id")
+    featured = body.get("featured", True)
+    if not isinstance(listing_id, int):
+        return jsonify({"error": "invalid_id"}), 400
+    db.set_force_featured(listing_id, featured)
+    db.log_admin_action(admin_user["id"], "feature_listing" if featured else "unfeature_listing", target_type="listing", target_id=str(listing_id))
+    return jsonify({"status": "ok"})
+
+
+@flask_app.route("/api/admin/analytics/search")
+def api_admin_search_analytics():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    days = request.args.get("days", 30, type=int)
+    return jsonify(db.get_search_analytics(days=days))
+
+
+@flask_app.route("/api/admin/analytics/growth")
+def api_admin_growth_analytics():
+    bot_token = bot_module.load_token()
+    if not require_admin(request.args.get("initData", ""), bot_token):
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify(db.get_growth_analytics())
+
+
+# ---------- Notifications ----------
+
+@flask_app.route("/api/notifications")
+def api_notifications():
+    bot_token = bot_module.load_token()
+    user = validate_init_data(request.args.get("initData", ""), bot_token)
+    if not user:
+        return jsonify({"error": "invalid_init_data"}), 401
+    return jsonify({
+        "notifications": db.get_notifications(user["id"]),
+        "unread_count": db.count_unread_notifications(user["id"]),
+    })
+
+
+@flask_app.route("/api/notifications/read", methods=["POST"])
+def api_mark_notifications_read():
+    bot_token = bot_module.load_token()
+    body = request.get_json(force=True, silent=True) or {}
+    user = validate_init_data(body.get("initData", ""), bot_token)
+    if not user:
+        return jsonify({"error": "invalid_init_data"}), 401
+    db.mark_notifications_read(user["id"])
+    return jsonify({"status": "ok"})
+
+
+# ---------- Entrepreneur Analytics ----------
+
+@flask_app.route("/api/my-analytics")
+def api_my_analytics():
+    bot_token = bot_module.load_token()
+    user = validate_init_data(request.args.get("initData", ""), bot_token)
+    if not user:
+        return jsonify({"error": "invalid_init_data"}), 401
+    analytics = db.get_entrepreneur_analytics(user["id"])
+    if not analytics:
+        return jsonify({"error": "not_registered"}), 404
+    return jsonify(analytics)
 
 
 # ---------- Running the bot alongside Flask ----------

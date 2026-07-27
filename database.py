@@ -167,6 +167,36 @@ def init_db():
                 UNIQUE(user_telegram_id, entrepreneur_id)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS admin_audit_log (
+                id SERIAL PRIMARY KEY,
+                admin_telegram_id BIGINT NOT NULL,
+                action TEXT NOT NULL,
+                target_type TEXT,
+                target_id TEXT,
+                details TEXT,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS search_log (
+                id SERIAL PRIMARY KEY,
+                query TEXT NOT NULL,
+                result_count INTEGER DEFAULT 0,
+                user_telegram_id BIGINT,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id SERIAL PRIMARY KEY,
+                user_telegram_id BIGINT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
         # ---- Migrations ----
         # Postgres supports "ADD COLUMN IF NOT EXISTS" directly, so unlike
@@ -177,8 +207,6 @@ def init_db():
             "email": "TEXT",
             "photo_file_id": "TEXT",
             "photo_base64": "TEXT",
-            "logo_base64": "TEXT",
-            "cover_base64": "TEXT",
             "gallery": "TEXT DEFAULT '[]'",
             "business_address": "TEXT",
             "website": "TEXT",
@@ -193,11 +221,15 @@ def init_db():
             "description": "TEXT DEFAULT ''",
             "business_type": "TEXT DEFAULT ''",
             "user_type": "TEXT DEFAULT 'freelancer'",
+            "suspended": "BOOLEAN DEFAULT FALSE",
+            "force_featured": "BOOLEAN DEFAULT FALSE",
+            "plan": "TEXT DEFAULT 'free'",
+            "plan_expires_at": "TIMESTAMPTZ",
         }
         for column, col_type in entrepreneur_migrations.items():
             conn.execute(f"ALTER TABLE entrepreneurs ADD COLUMN IF NOT EXISTS {column} {col_type}")
 
-        for column, col_type in {"comment": "TEXT", "rater_name": "TEXT"}.items():
+        for column, col_type in {"comment": "TEXT", "rater_name": "TEXT", "hidden": "BOOLEAN DEFAULT FALSE"}.items():
             conn.execute(f"ALTER TABLE ratings ADD COLUMN IF NOT EXISTS {column} {col_type}")
 
         for column, col_type in {
@@ -235,10 +267,9 @@ def init_db():
 def register_entrepreneur(telegram_id: int, fields: dict, service_names: list[str]):
     allowed_columns = {
         "name", "socials", "phone", "email", "photo_file_id", "photo_base64",
-        "logo_base64", "cover_base64", "gallery",
-        "business_address", "website", "home_address",
+        "gallery", "business_address", "website", "home_address",
         "phone_verified", "social_platforms", "description", "business_type",
-        "user_type",
+        "user_type", "latitude", "longitude", "location_captured_at",
     }
     fields = {k: v for k, v in fields.items() if k in allowed_columns}
 
@@ -298,11 +329,10 @@ def _base_entrepreneur_query():
         SELECT
             e.id, e.name, e.description, e.socials, e.social_platforms,
             e.phone, e.email, e.business_address, e.website,
-            e.photo_file_id, e.photo_base64, e.logo_base64, e.cover_base64,
-            e.gallery, e.business_type, e.user_type, e.phone_verified, e.created_at,
+            e.photo_file_id, e.gallery, e.business_type, e.user_type, e.phone_verified, e.created_at,
             STRING_AGG(DISTINCT s.name, ',') AS services_csv,
-            ROUND(AVG(r.score), 1) AS avg_rating,
-            COUNT(DISTINCT r.id) AS rating_count
+            ROUND(AVG(r.score) FILTER (WHERE r.hidden IS NOT TRUE), 1) AS avg_rating,
+            COUNT(DISTINCT r.id) FILTER (WHERE r.hidden IS NOT TRUE) AS rating_count
         FROM entrepreneurs e
         LEFT JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
         LEFT JOIN services s ON s.id = es.service_id
@@ -337,6 +367,7 @@ def get_top_entrepreneurs(limit: int = 5):
     with get_connection() as conn:
         rows = conn.execute(f"""
             {_base_entrepreneur_query()}
+            WHERE e.user_type = 'freelancer' AND e.suspended IS NOT TRUE
             GROUP BY e.id
             ORDER BY avg_rating DESC NULLS LAST, rating_count DESC
             LIMIT %s
@@ -348,6 +379,7 @@ def get_recent_entrepreneurs(limit: int = 10):
     with get_connection() as conn:
         rows = conn.execute(f"""
             {_base_entrepreneur_query()}
+            WHERE e.user_type = 'freelancer' AND e.suspended IS NOT TRUE
             GROUP BY e.id
             ORDER BY e.created_at DESC
             LIMIT %s
@@ -359,9 +391,10 @@ def get_featured_entrepreneurs(limit: int = 10):
     with get_connection() as conn:
         rows = conn.execute(f"""
             {_base_entrepreneur_query()}
+            WHERE e.user_type = 'freelancer' AND e.suspended IS NOT TRUE
             GROUP BY e.id
-            HAVING AVG(r.score) >= 4.0 AND COUNT(DISTINCT r.id) >= 3
-            ORDER BY rating_count DESC, avg_rating DESC
+            HAVING e.force_featured = TRUE OR (AVG(r.score) >= 4.0 AND COUNT(DISTINCT r.id) >= 3)
+            ORDER BY e.force_featured DESC, rating_count DESC, avg_rating DESC
             LIMIT %s
         """, (limit,)).fetchall()
         return [_row_to_dict(row) for row in rows]
@@ -399,7 +432,7 @@ def get_services_by_category(category: str):
         return [dict(row) for row in rows]
 
 
-def find_by_service(query: str, category: str = "", service_type: str = ""):
+def find_by_service(query: str, category: str = "", service_type: str = "", lat: float = None, lng: float = None, max_distance_km: float = None, limit: int = 20, offset: int = 0):
     query_stem = _stem(query)
     query_lower = query.strip().lower()
 
@@ -426,22 +459,63 @@ def find_by_service(query: str, category: str = "", service_type: str = ""):
             matching_ids |= {row["entrepreneur_id"] for row in rows}
 
         name_or_address_rows = conn.execute("""
-            SELECT id FROM entrepreneurs WHERE LOWER(name) LIKE LOWER(%s) OR LOWER(business_address) LIKE LOWER(%s) OR LOWER(description) LIKE LOWER(%s)
+            SELECT id FROM entrepreneurs WHERE user_type = 'freelancer' AND suspended IS NOT TRUE AND (LOWER(name) LIKE LOWER(%s) OR LOWER(business_address) LIKE LOWER(%s) OR LOWER(description) LIKE LOWER(%s))
         """, (f"%{query_lower}%", f"%{query_lower}%", f"%{query_lower}%")).fetchall()
         matching_ids |= {row["id"] for row in name_or_address_rows}
 
         if not matching_ids:
-            return []
+            return {"results": [], "total": 0}
+
+        has_location = lat is not None and lng is not None
+        distance_expr = ""
+        distance_where = ""
+        order_clause = "ORDER BY avg_rating DESC NULLS LAST, rating_count DESC"
+
+        if has_location:
+            haversine = (
+                f"6371 * acos("
+                f"cos(radians({lat})) * cos(radians(e.latitude)) * "
+                f"cos(radians(e.longitude) - radians({lng})) + "
+                f"sin(radians({lat})) * sin(radians(e.latitude))"
+                f")"
+            )
+            distance_expr = f", {haversine} AS distance_km"
+            if max_distance_km:
+                distance_where = f"AND ({haversine}) <= {max_distance_km}"
+            order_clause = "ORDER BY distance_km ASC, avg_rating DESC NULLS LAST"
 
         placeholders = ",".join("%s" for _ in matching_ids)
-        rows = conn.execute(f"""
-            {_base_entrepreneur_query()}
-            WHERE e.id IN ({placeholders})
-            GROUP BY e.id
-            ORDER BY avg_rating DESC NULLS LAST, rating_count DESC
-        """, list(matching_ids)).fetchall()
+        total = conn.execute(f"""
+            SELECT COUNT(*) AS cnt FROM (
+                SELECT e.id FROM entrepreneurs e
+                LEFT JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
+                LEFT JOIN services s ON s.id = es.service_id
+                LEFT JOIN ratings r ON r.entrepreneur_id = e.id
+                WHERE e.id IN ({placeholders}) AND e.user_type = 'freelancer' AND e.suspended IS NOT TRUE {distance_where}
+                GROUP BY e.id, e.latitude, e.longitude
+            ) sub
+        """, list(matching_ids)).fetchone()["cnt"]
 
-        return [_row_to_dict(row) for row in rows]
+        rows = conn.execute(f"""
+            SELECT
+                e.id, e.name, e.description, e.socials, e.social_platforms,
+                e.phone, e.email, e.business_address, e.website,
+            e.photo_file_id, e.gallery, e.business_type, e.user_type, e.phone_verified, e.identity_verified, e.created_at,
+                STRING_AGG(DISTINCT s.name, ',') AS services_csv,
+                ROUND(AVG(r.score), 1) AS avg_rating,
+                COUNT(DISTINCT r.id) AS rating_count
+                {distance_expr}
+            FROM entrepreneurs e
+            LEFT JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
+            LEFT JOIN services s ON s.id = es.service_id
+            LEFT JOIN ratings r ON r.entrepreneur_id = e.id
+            WHERE e.id IN ({placeholders}) AND e.user_type = 'freelancer' AND e.suspended IS NOT TRUE {distance_where}
+            GROUP BY e.id, e.latitude, e.longitude
+            {order_clause}
+            LIMIT %s OFFSET %s
+        """, (*list(matching_ids), limit, offset)).fetchall()
+
+        return {"results": [_row_to_dict(row) for row in rows], "total": total}
 
 
 # ---------- Ratings ----------
@@ -477,7 +551,7 @@ def get_reviews(entrepreneur_id: int, limit: int = 50):
         rows = conn.execute("""
             SELECT score, comment, rater_name, created_at
             FROM ratings
-            WHERE entrepreneur_id = %s
+            WHERE entrepreneur_id = %s AND (hidden IS NOT TRUE)
             ORDER BY created_at DESC
             LIMIT %s
         """, (entrepreneur_id, limit)).fetchall()
@@ -538,6 +612,278 @@ def count_favorites(telegram_id: int):
         return row["cnt"] if row else 0
 
 
+def hide_review(review_id: int):
+    with get_connection() as conn:
+        result = conn.execute(
+            "UPDATE ratings SET hidden = TRUE WHERE id = %s RETURNING id", (review_id,)
+        ).fetchone()
+        return result is not None
+
+
+def unhide_review(review_id: int):
+    with get_connection() as conn:
+        result = conn.execute(
+            "UPDATE ratings SET hidden = FALSE WHERE id = %s RETURNING id", (review_id,)
+        ).fetchone()
+        return result is not None
+
+
+def delete_review(review_id: int):
+    with get_connection() as conn:
+        result = conn.execute(
+            "DELETE FROM ratings WHERE id = %s RETURNING id", (review_id,)
+        ).fetchone()
+        return result is not None
+
+
+def get_review_by_id(review_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, entrepreneur_id, rater_telegram_id, score, comment, rater_name, hidden, created_at FROM ratings WHERE id = %s",
+            (review_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def suspend_listing(entrepreneur_id: int):
+    with get_connection() as conn:
+        result = conn.execute(
+            "UPDATE entrepreneurs SET suspended = TRUE WHERE id = %s RETURNING id", (entrepreneur_id,)
+        ).fetchone()
+        return result is not None
+
+
+def unsuspend_listing(entrepreneur_id: int):
+    with get_connection() as conn:
+        result = conn.execute(
+            "UPDATE entrepreneurs SET suspended = FALSE WHERE id = %s RETURNING id", (entrepreneur_id,)
+        ).fetchone()
+        return result is not None
+
+
+def log_admin_action(admin_telegram_id: int, action: str, target_type: str = None, target_id: str = None, details: str = None):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO admin_audit_log (admin_telegram_id, action, target_type, target_id, details) VALUES (%s, %s, %s, %s, %s)",
+            (admin_telegram_id, action, target_type, target_id, details)
+        )
+
+
+def get_admin_audit_log(limit: int = 50, offset: int = 0):
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM admin_audit_log ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (limit, offset)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def admin_get_listing(entrepreneur_id: int):
+    with get_connection() as conn:
+        row = conn.execute("""
+            SELECT
+                e.id, e.telegram_id, e.name, e.description, e.socials, e.social_platforms,
+                e.phone, e.email, e.business_address, e.website, e.photo_file_id,
+                e.gallery, e.business_type, e.user_type, e.phone_verified, e.identity_verified,
+                e.suspended, e.created_at,
+                STRING_AGG(DISTINCT s.name, ',') AS services_csv,
+                ROUND(AVG(r.score), 1) AS avg_rating,
+                COUNT(DISTINCT r.id) AS rating_count
+            FROM entrepreneurs e
+            LEFT JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
+            LEFT JOIN services s ON s.id = es.service_id
+            LEFT JOIN ratings r ON r.entrepreneur_id = e.id
+            WHERE e.id = %s
+            GROUP BY e.id
+        """, (entrepreneur_id,)).fetchone()
+        if not row:
+            return None
+        profile = _row_to_dict(row)
+        profile["reviews"] = get_reviews(entrepreneur_id)
+        return profile
+
+
+def admin_search_listings(query: str, limit: int = 20, offset: int = 0):
+    with get_connection() as conn:
+        q = f"%{query.strip().lower()}%"
+        total = conn.execute("""
+            SELECT COUNT(*) AS cnt FROM entrepreneurs
+            WHERE LOWER(name) LIKE LOWER(%s) OR CAST(id AS TEXT) LIKE %s OR LOWER(email) LIKE LOWER(%s)
+        """, (q, q, q)).fetchone()["cnt"]
+        rows = conn.execute("""
+            SELECT
+                e.id, e.name, e.email, e.user_type, e.suspended, e.identity_verified, e.phone_verified, e.created_at,
+                STRING_AGG(DISTINCT s.name, ',') AS services_csv,
+                ROUND(AVG(r.score), 1) AS avg_rating,
+                COUNT(DISTINCT r.id) AS rating_count
+            FROM entrepreneurs e
+            LEFT JOIN entrepreneur_services es ON es.entrepreneur_id = e.id
+            LEFT JOIN services s ON s.id = es.service_id
+            LEFT JOIN ratings r ON r.entrepreneur_id = e.id
+            WHERE LOWER(e.name) LIKE LOWER(%s) OR CAST(e.id AS TEXT) LIKE %s OR LOWER(e.email) LIKE LOWER(%s)
+            GROUP BY e.id
+            ORDER BY e.id
+            LIMIT %s OFFSET %s
+        """, (q, q, q, limit, offset)).fetchall()
+        return {"results": [_row_to_dict(row) for row in rows], "total": total}
+
+
+def merge_services(source_service_id: int, target_service_id: int):
+    with get_connection() as conn:
+        source = conn.execute("SELECT id, name FROM services WHERE id = %s", (source_service_id,)).fetchone()
+        target = conn.execute("SELECT id, name FROM services WHERE id = %s", (target_service_id,)).fetchone()
+        if not source or not target or source_service_id == target_service_id:
+            return False, "Invalid service IDs"
+        conn.execute("""
+            INSERT INTO entrepreneur_services (entrepreneur_id, service_id)
+            SELECT entrepreneur_id, %s FROM entrepreneur_services WHERE service_id = %s
+            ON CONFLICT (entrepreneur_id, service_id) DO NOTHING
+        """, (target_service_id, source_service_id))
+        conn.execute("DELETE FROM entrepreneur_services WHERE service_id = %s", (source_service_id,))
+        return True, f"Merged \"{source['name']}\" into \"{target['name']}\""
+
+
+def get_all_categories():
+    with get_connection() as conn:
+        rows = conn.execute("SELECT DISTINCT category FROM services ORDER BY category").fetchall()
+        return [row["category"] for row in rows]
+
+
+def add_category(name: str):
+    with get_connection() as conn:
+        conn.execute("INSERT INTO services (name, category) VALUES (%s, %s) ON CONFLICT DO NOTHING", (name.strip(), name.strip()))
+
+
+def delete_category(category: str):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM services WHERE category = %s", (category,))
+
+
+def set_force_featured(entrepreneur_id: int, featured: bool):
+    with get_connection() as conn:
+        result = conn.execute(
+            "UPDATE entrepreneurs SET force_featured = %s WHERE id = %s RETURNING id", (featured, entrepreneur_id)
+        ).fetchone()
+        return result is not None
+
+
+def log_search(query: str, result_count: int, user_telegram_id: int = None):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO search_log (query, result_count, user_telegram_id) VALUES (%s, %s, %s)",
+            (query, result_count, user_telegram_id)
+        )
+
+
+def get_search_analytics(days: int = 30):
+    with get_connection() as conn:
+        total = conn.execute("SELECT COUNT(*) AS cnt FROM search_log WHERE created_at >= NOW() - INTERVAL '%s days'", (days,)).fetchone()["cnt"]
+        popular = conn.execute("""
+            SELECT query, COUNT(*) AS cnt FROM search_log
+            WHERE created_at >= NOW() - INTERVAL '%s days'
+            GROUP BY query ORDER BY cnt DESC LIMIT 10
+        """, (days,)).fetchall()
+        daily = conn.execute("""
+            SELECT DATE(created_at) AS day, COUNT(*) AS cnt FROM search_log
+            WHERE created_at >= NOW() - INTERVAL '%s days'
+            GROUP BY day ORDER BY day
+        """, (days,)).fetchall()
+        return {
+            "total_searches": total,
+            "popular_queries": [dict(r) for r in popular],
+            "daily_counts": [dict(r) for r in daily],
+        }
+
+
+def get_growth_analytics():
+    with get_connection() as conn:
+        total_users = conn.execute("SELECT COUNT(*) AS cnt FROM entrepreneurs").fetchone()["cnt"]
+        total_freelancers = conn.execute("SELECT COUNT(*) AS cnt FROM entrepreneurs WHERE user_type = 'freelancer'").fetchone()["cnt"]
+        total_customers = conn.execute("SELECT COUNT(*) AS cnt FROM entrepreneurs WHERE user_type = 'customer'").fetchone()["cnt"]
+        total_reviews = conn.execute("SELECT COUNT(*) AS cnt FROM ratings").fetchone()["cnt"]
+        total_favorites = conn.execute("SELECT COUNT(*) AS cnt FROM favorites").fetchone()["cnt"]
+        recent_registrations = conn.execute("""
+            SELECT DATE(created_at) AS day, COUNT(*) AS cnt FROM entrepreneurs
+            WHERE created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY day ORDER BY day
+        """).fetchall()
+        return {
+            "total_users": total_users,
+            "total_freelancers": total_freelancers,
+            "total_customers": total_customers,
+            "total_reviews": total_reviews,
+            "total_favorites": total_favorites,
+            "recent_registrations": [dict(r) for r in recent_registrations],
+        }
+
+
+# ---------- Notifications ----------
+
+def send_notification(user_telegram_id: int, title: str, body: str):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO notifications (user_telegram_id, title, body) VALUES (%s, %s, %s)",
+            (user_telegram_id, title, body)
+        )
+
+
+def get_notifications(user_telegram_id: int, limit: int = 20):
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, title, body, is_read, created_at FROM notifications WHERE user_telegram_id = %s ORDER BY created_at DESC LIMIT %s",
+            (user_telegram_id, limit)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def mark_notifications_read(user_telegram_id: int):
+    with get_connection() as conn:
+        conn.execute("UPDATE notifications SET is_read = TRUE WHERE user_telegram_id = %s AND is_read = FALSE", (user_telegram_id,))
+
+
+def count_unread_notifications(user_telegram_id: int):
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM notifications WHERE user_telegram_id = %s AND is_read = FALSE",
+            (user_telegram_id,)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+# ---------- Entrepreneur Analytics ----------
+
+def get_entrepreneur_analytics(telegram_id: int):
+    with get_connection() as conn:
+        profile = conn.execute("SELECT id FROM entrepreneurs WHERE telegram_id = %s", (telegram_id,)).fetchone()
+        if not profile:
+            return None
+        eid = profile["id"]
+        favorites_count = conn.execute("SELECT COUNT(*) AS cnt FROM favorites WHERE entrepreneur_id = %s", (eid,)).fetchone()["cnt"]
+        reviews_count = conn.execute("SELECT COUNT(*) AS cnt FROM ratings WHERE entrepreneur_id = %s", (eid,)).fetchone()["cnt"]
+        avg_rating = conn.execute("SELECT ROUND(AVG(score), 1) AS avg FROM ratings WHERE entrepreneur_id = %s AND (hidden IS NOT TRUE)", (eid,)).fetchone()["avg"]
+        search_mentions = conn.execute("SELECT COUNT(*) AS cnt FROM search_log WHERE query ILIKE (SELECT name FROM entrepreneurs WHERE id = %s)", (eid,)).fetchone()["cnt"]
+        return {
+            "favorites_count": favorites_count,
+            "reviews_count": reviews_count,
+            "avg_rating": float(avg_rating) if avg_rating else None,
+            "search_mentions": search_mentions,
+        }
+
+
+# ---------- Monetization Prep ----------
+
+def set_listing_plan(telegram_id: int, plan: str):
+    with get_connection() as conn:
+        import datetime
+        expires = None
+        if plan == "pro":
+            expires = datetime.datetime.utcnow() + datetime.timedelta(days=30)
+        conn.execute(
+            "UPDATE entrepreneurs SET plan = %s, plan_expires_at = %s WHERE telegram_id = %s",
+            (plan, expires, telegram_id)
+        )
+
+
 def upgrade_to_freelancer(telegram_id: int):
     with get_connection() as conn:
         conn.execute(
@@ -569,7 +915,7 @@ def get_favorites(user_telegram_id: int):
         rows = conn.execute(f"""
             {_base_entrepreneur_query()}
             JOIN favorites f ON f.entrepreneur_id = e.id
-            WHERE f.user_telegram_id = %s
+            WHERE f.user_telegram_id = %s AND e.user_type = 'freelancer' AND e.suspended IS NOT TRUE
             GROUP BY e.id, f.created_at
             ORDER BY f.created_at DESC
         """, (user_telegram_id,)).fetchall()
@@ -643,10 +989,9 @@ def get_public_profile(entrepreneur_id: int):
     with get_connection() as conn:
         row = conn.execute("""
             SELECT id, name, description, socials, social_platforms, phone, email,
-                   business_address, website, photo_file_id, photo_base64,
-                   logo_base64, cover_base64, gallery, business_type, user_type,
-                   created_at, phone_verified
-            FROM entrepreneurs WHERE id = %s
+                   business_address, website, photo_file_id, gallery, business_type, user_type,
+                   created_at, phone_verified, identity_verified
+            FROM entrepreneurs WHERE id = %s AND user_type = 'freelancer' AND suspended IS NOT TRUE
         """, (entrepreneur_id,)).fetchone()
         if not row:
             return None
