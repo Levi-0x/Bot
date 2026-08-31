@@ -1,0 +1,52 @@
+/**
+ * middleware/auth.js
+ * -------------------
+ * In the flat server.js version, every route called requireUser()/
+ * requireAdmin() itself, at the top of its own handler — that matched
+ * server.py's structure closely, which was the point at the time.
+ *
+ * This is the more idiomatic Express way to do the same job: as real
+ * middleware, registered on a route (or a whole router) rather than
+ * repeated inside every handler. Express runs middleware BEFORE the
+ * route handler, and it decides whether the handler even runs — calling
+ * `next()` continues on to it, while sending a response (like
+ * `res.status(401).json(...)`) without calling `next()` stops the
+ * request right there.
+ *
+ * Usage in a routes file:
+ *   router.get("/profile", authUser, entrepreneurController.getProfile);
+ *
+ * By the time `getProfile` runs, `req.user` is already set — the
+ * controller doesn't need to know or care HOW the user was verified,
+ * just that `req.user` is trustworthy if it got this far.
+ */
+
+const botModule = require("../bot");
+const { validateInitData } = require("../lib/telegramAuth");
+
+function getInitData(req) {
+  return (req.method === "GET" ? req.query.initData : req.body.initData) || "";
+}
+
+async function authUser(req, res, next) {
+  const token = botModule.loadToken();
+  const user = validateInitData(getInitData(req), token);
+  if (!user) return res.status(401).json({ error: "invalid_init_data" });
+  req.user = user;
+  next();
+}
+
+// Layers on top of authUser's check rather than duplicating it — an
+// admin is still a normal signed-in user, just one who's also in the
+// admin list.
+async function authAdmin(req, res, next) {
+  const token = botModule.loadToken();
+  const user = validateInitData(getInitData(req), token);
+  if (!user) return res.status(401).json({ error: "invalid_init_data" });
+  const admins = await botModule.loadAdminIds();
+  if (!admins.has(user.id)) return res.status(403).json({ error: "forbidden" });
+  req.user = user;
+  next();
+}
+
+module.exports = { authUser, authAdmin, getInitData };
