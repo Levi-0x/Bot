@@ -180,6 +180,24 @@ async function apiPost(path, body) {
   return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
 }
 
+async function apiPatch(path, body) {
+  const res = await fetch(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
+}
+
+async function apiDelete(path, body) {
+  const res = await fetch(path, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
+}
+
 function emptyState(message) {
   return `
     <div class="empty-state">
@@ -214,6 +232,7 @@ function showView(name) {
 
   if (name === "home") loadHome();
   if (name === "explore") loadExplore();
+  if (name === "jobs") loadJobs();
   if (name === "favorites") loadFavorites();
   if (name === "profile") loadProfile();
   if (name === "admin") loadAdminPanel();
@@ -1376,13 +1395,336 @@ document.getElementById("adminAuditBtn").addEventListener("click", async () => {
     </div>`).join("");
 });
 
+// ============================================================
+// JOBS / BILLBOARD
+// ============================================================
+let jobsMode = "open"; // "open" | "mine"
+let jobSearchQuery = "";
+let jobSearchDebounce = null;
+let jobDetailReturnView = "jobs";
+let currentJobDetailId = null;
+
+document.querySelectorAll("[data-jobtab]").forEach(tab => {
+  tab.addEventListener("click", () => {
+    jobsMode = tab.dataset.jobtab;
+    document.querySelectorAll("[data-jobtab]").forEach(t => t.classList.toggle("active", t === tab));
+    document.getElementById("jobSearchBar").style.display = jobsMode === "mine" ? "none" : "flex";
+    loadJobs();
+  });
+});
+
+document.getElementById("jobSearchInput").addEventListener("input", (e) => {
+  clearTimeout(jobSearchDebounce);
+  jobSearchDebounce = setTimeout(() => {
+    jobSearchQuery = e.target.value.trim();
+    loadJobs();
+  }, 300);
+});
+
+async function loadJobs() {
+  const container = document.getElementById("jobsResults");
+  container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:40px 0;">Loading...</p>`;
+
+  if (jobsMode === "mine") {
+    const jobs = asArray(await apiGet("/api/jobs/mine"));
+    renderJobList(jobs, true);
+    return;
+  }
+
+  const params = new URLSearchParams();
+  if (jobSearchQuery) params.set("q", jobSearchQuery);
+  if (userLat != null && userLng != null) { params.set("lat", userLat); params.set("lng", userLng); }
+  const data = await apiGet(`/api/jobs?${params.toString()}`);
+  renderJobList(asArray(data?.results || data), false);
+}
+
+function jobBudgetLabel(job) {
+  if (job.budget_type === "negotiable" || job.budget == null) return "Negotiable";
+  const amount = Number(job.budget).toLocaleString();
+  return job.budget_type === "hourly" ? `\u20a6${amount}/hr` : `\u20a6${amount}`;
+}
+
+function renderJobList(jobs, mine) {
+  const container = document.getElementById("jobsResults");
+  if (!jobs.length) {
+    container.innerHTML = emptyState(mine ? "You haven't posted any jobs yet." : "No open jobs right now — check back soon, or be the first to post one.");
+    return;
+  }
+  container.innerHTML = jobs.map(j => renderJobCard(j, mine)).join("");
+  container.querySelectorAll("[data-open-job]").forEach(card => {
+    card.addEventListener("click", () => openJobDetail(card.dataset.openJob));
+  });
+}
+
+function renderJobCard(job, mine) {
+  const statusClass = job.status === "open" ? "job-status-open" : "job-status-fulfilled";
+  const metaBits = [];
+  if (job.category) metaBits.push(escapeHtml(job.category));
+  if (job.distance_km != null) metaBits.push(`${job.distance_km} km away`);
+  else if (job.location) metaBits.push(escapeHtml(job.location));
+  metaBits.push(`${job.response_count} response${job.response_count === 1 ? "" : "s"}`);
+
+  return `
+    <div class="job-card" data-open-job="${job.id}">
+      <div class="job-card-top">
+        <h3>${escapeHtml(job.title)}</h3>
+        <span class="job-budget-badge">${jobBudgetLabel(job)}</span>
+      </div>
+      <p class="job-card-desc">${escapeHtml(job.description)}</p>
+      <div class="job-card-meta">
+        ${mine ? `<span class="job-status-badge ${statusClass}">${escapeHtml(job.status)}</span>` : ""}
+        <span>${metaBits.join(" · ")}</span>
+      </div>
+    </div>`;
+}
+
+document.getElementById("postJobBtn").addEventListener("click", () => openPostJobModal());
+
+function openPostJobModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>Post a Job</h3>
+      <p class="field-hint">Describe what you need — freelancers on GrowthHub can respond directly.</p>
+      <label class="field">Title
+        <input type="text" id="jobTitleInput" placeholder="e.g. Need a logo designed" maxlength="120" />
+      </label>
+      <label class="field">Description
+        <textarea id="jobDescInput" rows="4" placeholder="What do you need done? Be specific." maxlength="1000"></textarea>
+      </label>
+      <label class="field">Category <span class="opt">optional</span>
+        <input type="text" id="jobCategoryInput" placeholder="e.g. design, plumbing, tutoring" />
+      </label>
+      <label class="field">Budget type
+        <select id="jobBudgetType">
+          <option value="negotiable">Negotiable</option>
+          <option value="fixed">Fixed price</option>
+          <option value="hourly">Hourly rate</option>
+        </select>
+      </label>
+      <label class="field" id="jobBudgetAmountField" style="display:none;">Budget amount (\u20a6)
+        <input type="number" id="jobBudgetAmount" placeholder="e.g. 15000" />
+      </label>
+      <label class="field-toggle">
+        <span>This must be done on-site (in person)?</span>
+        <input type="checkbox" id="jobRequiresOnSite" />
+      </label>
+      <label class="field" id="jobLocationField" style="display:none;">Location
+        <input type="text" id="jobLocationInput" placeholder="e.g. Ikeja, Lagos" />
+      </label>
+      <button class="btn-primary" id="jobPostSubmitBtn">Post Job</button>
+      <button class="btn-secondary btn-modal-cancel" id="jobPostCancelBtn">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById("jobBudgetType").addEventListener("change", (e) => {
+    document.getElementById("jobBudgetAmountField").style.display = e.target.value === "negotiable" ? "none" : "block";
+  });
+  document.getElementById("jobRequiresOnSite").addEventListener("change", (e) => {
+    document.getElementById("jobLocationField").style.display = e.target.checked ? "block" : "none";
+  });
+
+  document.getElementById("jobPostSubmitBtn").addEventListener("click", async () => {
+    const title = document.getElementById("jobTitleInput").value.trim();
+    const description = document.getElementById("jobDescInput").value.trim();
+    if (!title || !description) {
+      return tg.showAlert("Please add a title and description.");
+    }
+    const requiresOnSite = document.getElementById("jobRequiresOnSite").checked;
+    const locationAddress = document.getElementById("jobLocationInput").value.trim();
+    if (requiresOnSite && !locationAddress) {
+      return tg.showAlert("On-site jobs need a location so nearby freelancers can find them.");
+    }
+
+    const payload = {
+      initData: tg.initData,
+      title,
+      description,
+      category: document.getElementById("jobCategoryInput").value.trim(),
+      budget_type: document.getElementById("jobBudgetType").value,
+      budget: document.getElementById("jobBudgetAmount").value || null,
+      requires_on_site: requiresOnSite,
+      location_address: locationAddress,
+    };
+    if (userLat != null && userLng != null) { payload.lat = userLat; payload.lng = userLng; }
+
+    const { ok, data } = await apiPost("/api/jobs", payload);
+    if (ok) {
+      overlay.remove();
+      tg.showAlert("Job posted! You'll see responses under My Jobs.");
+      jobsMode = "open";
+      document.querySelectorAll("[data-jobtab]").forEach(t => t.classList.toggle("active", t.dataset.jobtab === "open"));
+      loadJobs();
+    } else {
+      tg.showAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong.");
+    }
+  });
+
+  document.getElementById("jobPostCancelBtn").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+async function openJobDetail(jobId) {
+  const activeView = document.querySelector(".view.active");
+  if (activeView && activeView.id !== "view-job-detail") {
+    jobDetailReturnView = activeView.id.replace("view-", "");
+  }
+  currentJobDetailId = jobId;
+  showView("job-detail");
+
+  const container = document.getElementById("jobDetailContent");
+  container.innerHTML = `<p style="text-align:center;color:var(--text-muted);padding:40px 0;">Loading...</p>`;
+
+  const job = await apiGet(`/api/jobs/${jobId}`);
+  if (!job || job.error) {
+    container.innerHTML = emptyState("This job couldn't be found.");
+    return;
+  }
+
+  const myId = tg.initDataUnsafe?.user?.id;
+  const isOwner = job.poster_telegram_id === myId;
+  const metaBits = [];
+  if (job.category) metaBits.push(escapeHtml(job.category));
+  if (job.location) metaBits.push(escapeHtml(job.location));
+  metaBits.push(`Posted by ${escapeHtml(job.poster_name || "Someone")}`);
+
+  let responsesHtml = "";
+  if (isOwner) {
+    const responses = job.responses || [];
+    responsesHtml = `
+      <div class="detail-section">
+        <div class="detail-section-title">Responses (${responses.length})</div>
+        ${responses.length
+          ? responses.map(r => `
+            <div class="job-response-row">
+              <div class="job-response-head"><b>${escapeHtml(r.name)}</b></div>
+              ${r.message ? `<p>${escapeHtml(r.message)}</p>` : `<p class="field-hint">No message left.</p>`}
+            </div>`).join("")
+          : `<p class="field-hint">No responses yet.</p>`}
+      </div>`;
+  }
+
+  let actionsHtml = "";
+  if (isOwner && job.status === "open") {
+    actionsHtml = `
+      <div class="job-post-actions">
+        <button class="btn-primary" id="jobMarkFulfilledBtn">Mark Fulfilled</button>
+        <button class="btn-secondary danger-text" id="jobCloseBtn">Close</button>
+      </div>
+      <div class="job-post-actions">
+        <button class="btn-secondary danger-text" id="jobDeleteBtn" style="width:100%;">Delete Job</button>
+      </div>`;
+  } else if (isOwner) {
+    actionsHtml = `
+      <div class="job-post-actions">
+        <button class="btn-secondary danger-text" id="jobDeleteBtn" style="width:100%;">Delete Job</button>
+      </div>`;
+  } else if (job.status === "open") {
+    actionsHtml = `
+      <div class="job-post-actions">
+        <button class="btn-primary" id="jobRespondBtn" style="width:100%;">Respond to this Job</button>
+      </div>`;
+  }
+
+  container.innerHTML = `
+    <h2 class="job-detail-title">${escapeHtml(job.title)}</h2>
+    <div class="job-card-meta" style="margin-bottom:14px;">
+      <span class="job-budget-badge">${jobBudgetLabel(job)}</span>
+      <span class="job-status-badge ${job.status === "open" ? "job-status-open" : "job-status-fulfilled"}">${escapeHtml(job.status)}</span>
+    </div>
+    <p class="job-detail-desc">${escapeHtml(job.description)}</p>
+    <p class="field-hint" style="margin-bottom:16px;">${metaBits.join(" · ")}</p>
+    ${responsesHtml}
+    ${actionsHtml}`;
+
+  if (isOwner && job.status === "open") {
+    document.getElementById("jobMarkFulfilledBtn").addEventListener("click", () => closeJob(jobId, "fulfilled"));
+    document.getElementById("jobCloseBtn").addEventListener("click", () => closeJob(jobId, "closed"));
+  }
+  const deleteBtn = document.getElementById("jobDeleteBtn");
+  if (deleteBtn) deleteBtn.addEventListener("click", () => deleteJob(jobId));
+  const respondBtn = document.getElementById("jobRespondBtn");
+  if (respondBtn) respondBtn.addEventListener("click", () => openRespondModal(jobId));
+}
+
+document.getElementById("jobDetailBack").addEventListener("click", () => showView(jobDetailReturnView));
+
+function openRespondModal(jobId) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>Respond to this Job</h3>
+      <p class="field-hint">Let the poster know you're interested — a short note helps.</p>
+      <textarea id="jobRespondMessage" rows="3" placeholder="Optional — introduce yourself or ask a question" maxlength="300"></textarea>
+      <button class="btn-primary" id="jobRespondSubmitBtn">Send Response</button>
+      <button class="btn-secondary btn-modal-cancel" id="jobRespondCancelBtn">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById("jobRespondSubmitBtn").addEventListener("click", async () => {
+    const message = document.getElementById("jobRespondMessage").value.trim();
+    overlay.remove();
+    const { ok, data } = await apiPost(`/api/jobs/${jobId}/respond`, { initData: tg.initData, message });
+    if (ok) {
+      tg.showAlert("Response sent!");
+    } else {
+      const messages = {
+        already_responded: "You've already responded to this job.",
+        own_post: "You can't respond to your own job post.",
+        not_open: "This job isn't open anymore.",
+        not_found: "This job couldn't be found.",
+      };
+      tg.showAlert(messages[data?.error] || "Something went wrong.");
+    }
+  });
+
+  document.getElementById("jobRespondCancelBtn").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+function closeJob(jobId, status) {
+  const label = status === "fulfilled" ? "mark this job as fulfilled" : "close this job";
+  tg.showConfirm(`Are you sure you want to ${label}?`, async (confirmed) => {
+    if (!confirmed) return;
+    const { ok } = await apiPatch(`/api/jobs/${jobId}/close`, { initData: tg.initData, status });
+    if (ok) {
+      tg.showAlert("Updated.");
+      openJobDetail(jobId);
+    } else {
+      tg.showAlert("Something went wrong.");
+    }
+  });
+}
+
+function deleteJob(jobId) {
+  tg.showConfirm("Delete this job post? This can't be undone.", async (confirmed) => {
+    if (!confirmed) return;
+    const { ok } = await apiDelete(`/api/jobs/${jobId}`, { initData: tg.initData });
+    if (ok) {
+      tg.showAlert("Job deleted.");
+      showView(jobDetailReturnView);
+    } else {
+      tg.showAlert("Something went wrong.");
+    }
+  });
+}
+
 // ---- Boot ----
 async function boot() {
+  // FIX: checkAdminAccess() used to be called only inside the
+  // "already registered" branch below. An admin who hasn't registered
+  // a listing yet would never have their admin status checked, no
+  // matter what ADMIN_IDS says — the Admin tab would just never appear
+  // for them. Moving this above the if/else means it always runs,
+  // regardless of registration status.
+  checkAdminAccess();
+
   const profile = await apiGet("/api/profile");
   if (profile && !profile.error && profile.id) {
     currentUserType = profile.user_type || "freelancer";
     loadHome();
-    checkAdminAccess();
   } else {
     openStepper(null);
   }

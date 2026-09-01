@@ -12,7 +12,11 @@ router.post("/", authUser, ctrl.create);
 router.get("/mine", authUser, ctrl.getMine);
 router.get("/:id", authUser, ctrl.getOne);
 router.post("/:id/respond", authUser, ctrl.respond);
-router.patch("/:id/close", authUser, ctrl.close);
-router.delete("/:id", authUser, ctrl.remove);
+
+// POST, not PATCH/DELETE — see the note in routes/adminRoutes.js. This
+// app's frontend only ever sends POST, so every mutating route here
+// follows that same convention rather than mixing HTTP verbs.
+router.post("/:id/close", authUser, ctrl.close);
+router.post("/:id/delete", authUser, ctrl.remove);
 
 module.exports = router;

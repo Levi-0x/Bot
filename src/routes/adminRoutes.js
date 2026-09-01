@@ -17,12 +17,21 @@ router.post("/add_admin", authAdmin, ctrl.addAdmin);
 router.post("/remove_admin", authAdmin, ctrl.removeAdmin);
 router.post("/forceremove", authAdmin, ctrl.forceRemove);
 
-router.delete("/reviews/:id", authAdmin, ctrl.deleteReview);
-router.patch("/reviews/:id/hide", authAdmin, ctrl.hideReview);
-router.patch("/reviews/:id/unhide", authAdmin, ctrl.unhideReview);
+// NOTE ON HTTP METHODS: PATCH/DELETE would be the more "textbook REST"
+// choice for these actions. This app deliberately uses POST for all of
+// them instead, because the existing frontend's apiPost() helper (in
+// app.js) only ever sends POST — that was true before the billboard
+// feature existed, and app.js's admin panel already calls
+// /api/admin/listings/:id/suspend expecting POST. Using PATCH/DELETE
+// here would silently 404 against the real frontend. One HTTP verb,
+// consistently, beats being "more correct" per-route and inconsistent
+// across the app.
+router.post("/reviews/:id/delete", authAdmin, ctrl.deleteReview);
+router.post("/reviews/:id/hide", authAdmin, ctrl.hideReview);
+router.post("/reviews/:id/unhide", authAdmin, ctrl.unhideReview);
 
-router.patch("/listings/:id/suspend", authAdmin, ctrl.suspendListing);
-router.patch("/listings/:id/unsuspend", authAdmin, ctrl.unsuspendListing);
+router.post("/listings/:id/suspend", authAdmin, ctrl.suspendListing);
+router.post("/listings/:id/unsuspend", authAdmin, ctrl.unsuspendListing);
 
 router.get("/audit_log", authAdmin, ctrl.getAuditLog);
 router.get("/listing/:id", authAdmin, ctrl.getListing);
@@ -31,7 +40,7 @@ router.post("/merge_services", authAdmin, ctrl.mergeServices);
 
 router.get("/categories", authAdmin, ctrl.getAllCategories);
 router.post("/categories", authAdmin, ctrl.addCategory);
-router.delete("/categories/:category", authAdmin, ctrl.deleteCategory);
+router.post("/categories/:category/delete", authAdmin, ctrl.deleteCategory);
 
 router.post("/feature", authAdmin, ctrl.feature);
 
@@ -44,8 +53,8 @@ router.get("/analytics/growth", authAdmin, ctrl.growthAnalytics);
 // jobRepository.js, not repository.js.
 const jobCtrl = require("../controllers/jobController");
 router.get("/jobs", authAdmin, jobCtrl.adminList);
-router.patch("/jobs/:id/suspend", authAdmin, jobCtrl.adminSuspend);
-router.patch("/jobs/:id/unsuspend", authAdmin, jobCtrl.adminUnsuspend);
-router.delete("/jobs/:id", authAdmin, jobCtrl.adminDelete);
+router.post("/jobs/:id/suspend", authAdmin, jobCtrl.adminSuspend);
+router.post("/jobs/:id/unsuspend", authAdmin, jobCtrl.adminUnsuspend);
+router.post("/jobs/:id/delete", authAdmin, jobCtrl.adminDelete);
 
 module.exports = router;

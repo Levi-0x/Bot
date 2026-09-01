@@ -28,6 +28,40 @@ app.get("/", (req, res) => {
 
 app.use(routes); // every /api/* route, from routes/index.js
 
+/**
+ * Global error-handling middleware — the other half of the fix in
+ * middleware/asyncHandler.js. Express recognizes this as an error
+ * handler specifically because it takes FOUR arguments (err, req, res,
+ * next); a normal middleware/route function takes three or fewer. Every
+ * wrapped controller and both auth middleware functions call next(err)
+ * on failure, and this is where that error actually lands — logged
+ * server-side, with a generic message sent to the client (never the raw
+ * error, which could leak internal details like a database connection
+ * string in a stack trace).
+ *
+ * This MUST be registered after app.use(routes) — Express only treats
+ * error-handling middleware registered after the routes as applying to
+ * errors from those routes.
+ */
+app.use((err, req, res, next) => {
+  console.error(`Unhandled error on ${req.method} ${req.path}:`, err);
+  if (res.headersSent) return next(err); // a response already started; let Express's default handler close it out
+  res.status(500).json({ error: "internal_error" });
+});
+
+// Last-resort safety net. With every route and both auth middleware
+// functions now wrapped, this should never actually fire from an HTTP
+// request — but this catches anything genuinely unexpected (e.g. an
+// error in code running outside a request, like the bot's own
+// background polling) so it's logged instead of silently taking the
+// process down.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+});
+
 async function main() {
   await connect();          // opens the Mongo connection pool + seeds categories
   botModule.buildBot();     // starts the bot polling in the background

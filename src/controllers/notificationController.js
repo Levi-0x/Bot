@@ -12,4 +12,4 @@ async function markRead(req, res) {
   res.json({ status: "ok" });
 }
 
-module.exports = { getNotifications, markRead };
+module.exports = require("../middleware/asyncHandler").wrapAllAsync({ getNotifications, markRead });

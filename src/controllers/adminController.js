@@ -179,10 +179,10 @@ async function growthAnalytics(req, res) {
   res.json(await repo.getGrowthAnalytics());
 }
 
-module.exports = {
+module.exports = require("../middleware/asyncHandler").wrapAllAsync({
   checkAdmin, getStats, broadcast, listAdmins, addAdmin, removeAdmin, forceRemove,
   deleteReview, hideReview, unhideReview, suspendListing, unsuspendListing,
   getAuditLog, getListing, searchListings, mergeServices,
   getAllCategories, addCategory, deleteCategory, feature,
   searchAnalytics, growthAnalytics,
-};
+});

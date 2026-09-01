@@ -48,6 +48,23 @@ const ServiceOfferedSchema = new Schema(
 // entrepreneur it belongs to. Mongo's ObjectIds are globally unique, so
 // `Entrepreneur.findOne({ "ratings._id": someId })` works even though
 // ratings live nested inside many different documents.
+// FIX: socialPlatforms used to be declared as `[String]` here, but the
+// frontend has always sent (and expected back) an array of
+// {platform, handle} objects — e.g. { platform: "instagram", handle:
+// "@janes_bakery" }. Mongoose tried to cast each incoming object down
+// to a plain string on every save, which throws a CastError. Worse,
+// because nothing in this app caught that error before now (see
+// middleware/asyncHandler.js), it didn't just fail that one request —
+// it crashed the entire server process for every user. This schema now
+// matches what's actually being sent.
+const SocialPlatformSchema = new Schema(
+  {
+    platform: { type: String, required: true }, // e.g. "instagram", "twitter", "facebook"
+    handle: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const RatingSchema = new Schema({
   raterTelegramId: { type: Number, required: true },
   score: { type: Number, required: true, min: 1, max: 5 },
@@ -67,7 +84,7 @@ const EntrepreneurSchema = new Schema({
   name: { type: String, required: true },
   description: { type: String, default: "" },
   socials: String,
-  socialPlatforms: { type: [String], default: [] },
+  socialPlatforms: { type: [SocialPlatformSchema], default: [] },
   phone: String,
   email: String,
 

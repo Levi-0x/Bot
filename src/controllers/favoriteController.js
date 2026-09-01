@@ -18,4 +18,4 @@ async function removeFavorite(req, res) {
   res.json({ status: "ok" });
 }
 
-module.exports = { getFavorites, addFavorite, removeFavorite };
+module.exports = require("../middleware/asyncHandler").wrapAllAsync({ getFavorites, addFavorite, removeFavorite });

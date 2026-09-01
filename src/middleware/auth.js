@@ -19,27 +19,35 @@
  * By the time `getProfile` runs, `req.user` is already set — the
  * controller doesn't need to know or care HOW the user was verified,
  * just that `req.user` is trustworthy if it got this far.
+ *
+ * Both functions below are wrapped in wrapAsync() before being exported
+ * — they're async and can throw (e.g. loadToken() throws a plain Error
+ * if no bot token is configured), and without that wrapper an error
+ * here would crash the whole process the same way an unwrapped
+ * controller would. See middleware/asyncHandler.js for the full
+ * explanation.
  */
 
 const botModule = require("../bot");
 const { validateInitData } = require("../lib/telegramAuth");
+const { wrapAsync } = require("./asyncHandler");
 
 function getInitData(req) {
   return (req.method === "GET" ? req.query.initData : req.body.initData) || "";
 }
 
-async function authUser(req, res, next) {
+const authUser = wrapAsync(async (req, res, next) => {
   const token = botModule.loadToken();
   const user = validateInitData(getInitData(req), token);
   if (!user) return res.status(401).json({ error: "invalid_init_data" });
   req.user = user;
   next();
-}
+});
 
 // Layers on top of authUser's check rather than duplicating it — an
 // admin is still a normal signed-in user, just one who's also in the
 // admin list.
-async function authAdmin(req, res, next) {
+const authAdmin = wrapAsync(async (req, res, next) => {
   const token = botModule.loadToken();
   const user = validateInitData(getInitData(req), token);
   if (!user) return res.status(401).json({ error: "invalid_init_data" });
@@ -47,6 +55,6 @@ async function authAdmin(req, res, next) {
   if (!admins.has(user.id)) return res.status(403).json({ error: "forbidden" });
   req.user = user;
   next();
-}
+});
 
 module.exports = { authUser, authAdmin, getInitData };

@@ -72,6 +72,40 @@
     <div id="exploreResults" class="results"></div>
   </section>
 
+  <!-- ===================== JOBS / BILLBOARD ===================== -->
+  <section id="view-jobs" class="view">
+    <header class="view-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <h1>Job Board</h1>
+      <button class="icon-btn" id="postJobBtn" aria-label="Post a job">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+
+    <div class="explore-tabs">
+      <button class="explore-tab active" data-jobtab="open">Open Jobs</button>
+      <button class="explore-tab" data-jobtab="mine">My Jobs</button>
+    </div>
+
+    <div class="search-bar" id="jobSearchBar">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="jobSearchInput" type="text" placeholder="Search jobs by title or description..." />
+    </div>
+
+    <div id="jobsResults" class="results"></div>
+  </section>
+
+  <!-- ===================== JOB DETAIL ===================== -->
+  <section id="view-job-detail" class="view">
+    <header class="detail-header">
+      <button class="icon-btn" id="jobDetailBack">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1>Job Details</h1>
+      <div></div>
+    </header>
+    <div id="jobDetailContent"></div>
+  </section>
+
   <!-- ===================== FAVORITES ===================== -->
   <section id="view-favorites" class="view">
     <header class="view-header"><h1>Favorites</h1></header>
@@ -334,6 +368,10 @@
     <button class="nav-btn" data-nav="explore">
       <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       <span>Explore</span>
+    </button>
+    <button class="nav-btn" data-nav="jobs">
+      <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="7" width="18" height="13" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Jobs</span>
     </button>
     <button class="nav-btn" data-nav="favorites">
       <svg viewBox="0 0 24 24" fill="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" stroke="currentColor" stroke-width="2"/></svg>

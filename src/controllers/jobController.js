@@ -132,4 +132,7 @@ async function adminDelete(req, res) {
   res.json({ status: "ok", deleted });
 }
 
-module.exports = { list, create, getMine, getOne, respond, close, remove, adminList, adminSuspend, adminUnsuspend, adminDelete };
+module.exports = require("../middleware/asyncHandler").wrapAllAsync({
+  list, create, getMine, getOne, respond, close, remove,
+  adminList, adminSuspend, adminUnsuspend, adminDelete,
+});

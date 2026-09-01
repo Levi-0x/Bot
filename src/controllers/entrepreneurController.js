@@ -122,8 +122,15 @@ async function register(req, res) {
       businessType: (body.business_type || "").trim(),
       userType: "freelancer",
     };
-    if (Array.isArray(body.social_platforms)) fields.socialPlatforms = body.social_platforms;
-    else if (typeof body.social_platforms === "string") fields.socialPlatforms = [body.social_platforms];
+    if (Array.isArray(body.social_platforms)) {
+      // Sanitize rather than trust the shape blindly — same defensive
+      // instinct as ALLOWED_FIELDS in repository.js. Anything not
+      // shaped like { platform, handle } is dropped rather than sent to
+      // Mongoose, where a bad shape would otherwise throw a CastError.
+      fields.socialPlatforms = body.social_platforms
+        .filter((sp) => sp && typeof sp.platform === "string" && sp.platform.trim())
+        .map((sp) => ({ platform: sp.platform.trim(), handle: (sp.handle || "").trim() }));
+    }
     if (photoBase64) fields.photoBase64 = photoBase64;
     if (Array.isArray(body.gallery)) fields.gallery = body.gallery;
   }
@@ -205,8 +212,8 @@ async function getMyAnalytics(req, res) {
   res.json(analytics);
 }
 
-module.exports = {
+module.exports = require("../middleware/asyncHandler").wrapAllAsync({
   getServices, getCategories, getTop, getRecent, getFeatured, getEntrepreneur, find,
   getProfile, upgradeToFreelancer, register, getPhoto, rate, getReviews, unregister,
   checkPhone, getMyAnalytics,
-};
+});
