@@ -1727,7 +1727,12 @@ function closeJob(jobId, status) {
   const label = status === "fulfilled" ? "mark this job as fulfilled" : "close this job";
   safeConfirm(`Are you sure you want to ${label}?`, async (confirmed) => {
     if (!confirmed) return;
-    const { ok, status: httpStatus, data } = await apiPatch(`/api/jobs/${jobId}/close`, { initData: tg.initData, status });
+    // FIX: this called apiPatch() against a route that's deliberately
+    // POST-only (see the note in the backend's routes/jobRoutes.js —
+    // this app standardized on POST everywhere specifically to avoid
+    // this exact mismatch, after the same bug bit the admin panel's
+    // suspend/unsuspend buttons earlier). PATCH here always 404'd.
+    const { ok, status: httpStatus, data } = await apiPost(`/api/jobs/${jobId}/close`, { initData: tg.initData, status });
     if (ok) {
       safeAlert("Updated.");
       openJobDetail(jobId);
@@ -1741,7 +1746,11 @@ function closeJob(jobId, status) {
 function deleteJob(jobId) {
   safeConfirm("Delete this job post? This can't be undone.", async (confirmed) => {
     if (!confirmed) return;
-    const { ok, status: httpStatus, data } = await apiDelete(`/api/jobs/${jobId}`, { initData: tg.initData });
+    // FIX: two problems here — apiDelete() sent DELETE (the route is
+    // POST-only, same reasoning as closeJob() above), AND the URL was
+    // missing the "/delete" suffix the backend actually expects
+    // (POST /api/jobs/:id/delete, not DELETE /api/jobs/:id).
+    const { ok, status: httpStatus, data } = await apiPost(`/api/jobs/${jobId}/delete`, { initData: tg.initData });
     if (ok) {
       safeAlert("Job deleted.");
       showView(jobDetailReturnView);
