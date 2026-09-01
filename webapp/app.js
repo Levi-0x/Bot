@@ -198,6 +198,32 @@ async function apiDelete(path, body) {
   return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
 }
 
+// tg.showConfirm() requires Bot API 6.2+ — on an older Telegram client
+// it's either undefined or silently does nothing (no dialog, callback
+// never fires), which looks exactly like "the button does nothing" from
+// the outside, since the actual request only ever gets sent inside that
+// callback. tg.showAlert already gets this same defensive treatment
+// elsewhere in this file; showConfirm never did until now.
+function safeConfirm(message, callback) {
+  const supported = tg.showConfirm && (!tg.isVersionAtLeast || tg.isVersionAtLeast("6.2"));
+  if (supported) {
+    try {
+      tg.showConfirm(message, callback);
+      return;
+    } catch (e) {
+      console.error("tg.showConfirm threw, falling back to window.confirm:", e);
+    }
+  }
+  callback(window.confirm(message));
+}
+
+function safeAlert(message) {
+  if (tg.showAlert) {
+    try { tg.showAlert(message); return; } catch (e) { console.error("tg.showAlert threw:", e); }
+  }
+  alert(message);
+}
+
 function emptyState(message) {
   return `
     <div class="empty-state">
@@ -912,7 +938,16 @@ function openStepper(existingProfile) {
     try {
       const parsed = typeof existingProfile.social_platforms === "string"
         ? JSON.parse(existingProfile.social_platforms) : existingProfile.social_platforms;
-      if (Array.isArray(parsed)) socialPlatforms = parsed;
+      // Defensive filter: older saves (before social platforms were
+      // consistently stored as { platform, handle } objects) may have
+      // left plain strings behind. A string here has no .handle, which
+      // would throw at submit time (see the filter() below) — dropping
+      // anything that isn't a proper {platform, handle} object means an
+      // account with old data can still edit and re-save cleanly instead
+      // of being stuck on a crash it has no way to fix from the UI.
+      if (Array.isArray(parsed)) {
+        socialPlatforms = parsed.filter(sp => sp && typeof sp === "object" && typeof sp.platform === "string");
+      }
     } catch(e) {}
   }
   renderSocialPlatforms();
@@ -1210,7 +1245,11 @@ async function submitRegistration() {
 
   if (isFreelancer) {
     payload.services = stepperTags;
-    payload.social_platforms = socialPlatforms.filter(sp => sp.handle.trim());
+    // Defensive filter here too — belt-and-braces alongside the load-time
+    // filter above. If sp.handle is ever missing (shouldn't be possible
+    // now, but shouldn't crash the whole submit even if it happened),
+    // treat it as no handle rather than throwing on undefined.trim().
+    payload.social_platforms = socialPlatforms.filter(sp => sp && typeof sp.handle === "string" && sp.handle.trim());
     payload.business_address = document.getElementById("stepBusinessAddress").value.trim();
     payload.website = document.getElementById("stepWebsite").value.trim();
     payload.home_address = document.getElementById("stepHomeAddress").value.trim();
@@ -1529,12 +1568,12 @@ function openPostJobModal() {
     const title = document.getElementById("jobTitleInput").value.trim();
     const description = document.getElementById("jobDescInput").value.trim();
     if (!title || !description) {
-      return tg.showAlert("Please add a title and description.");
+      return safeAlert("Please add a title and description.");
     }
     const requiresOnSite = document.getElementById("jobRequiresOnSite").checked;
     const locationAddress = document.getElementById("jobLocationInput").value.trim();
     if (requiresOnSite && !locationAddress) {
-      return tg.showAlert("On-site jobs need a location so nearby freelancers can find them.");
+      return safeAlert("On-site jobs need a location so nearby freelancers can find them.");
     }
 
     const payload = {
@@ -1552,12 +1591,12 @@ function openPostJobModal() {
     const { ok, data } = await apiPost("/api/jobs", payload);
     if (ok) {
       overlay.remove();
-      tg.showAlert("Job posted! You'll see responses under My Jobs.");
+      safeAlert("Job posted! You'll see responses under My Jobs.");
       jobsMode = "open";
       document.querySelectorAll("[data-jobtab]").forEach(t => t.classList.toggle("active", t.dataset.jobtab === "open"));
       loadJobs();
     } else {
-      tg.showAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong.");
+      safeAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong.");
     }
   });
 
@@ -1668,7 +1707,7 @@ function openRespondModal(jobId) {
     overlay.remove();
     const { ok, data } = await apiPost(`/api/jobs/${jobId}/respond`, { initData: tg.initData, message });
     if (ok) {
-      tg.showAlert("Response sent!");
+      safeAlert("Response sent!");
     } else {
       const messages = {
         already_responded: "You've already responded to this job.",
@@ -1676,7 +1715,7 @@ function openRespondModal(jobId) {
         not_open: "This job isn't open anymore.",
         not_found: "This job couldn't be found.",
       };
-      tg.showAlert(messages[data?.error] || "Something went wrong.");
+      safeAlert(messages[data?.error] || "Something went wrong.");
     }
   });
 
@@ -1686,27 +1725,29 @@ function openRespondModal(jobId) {
 
 function closeJob(jobId, status) {
   const label = status === "fulfilled" ? "mark this job as fulfilled" : "close this job";
-  tg.showConfirm(`Are you sure you want to ${label}?`, async (confirmed) => {
+  safeConfirm(`Are you sure you want to ${label}?`, async (confirmed) => {
     if (!confirmed) return;
-    const { ok } = await apiPatch(`/api/jobs/${jobId}/close`, { initData: tg.initData, status });
+    const { ok, status: httpStatus, data } = await apiPatch(`/api/jobs/${jobId}/close`, { initData: tg.initData, status });
     if (ok) {
-      tg.showAlert("Updated.");
+      safeAlert("Updated.");
       openJobDetail(jobId);
     } else {
-      tg.showAlert("Something went wrong.");
+      console.error("closeJob failed:", httpStatus, data);
+      safeAlert("Something went wrong.");
     }
   });
 }
 
 function deleteJob(jobId) {
-  tg.showConfirm("Delete this job post? This can't be undone.", async (confirmed) => {
+  safeConfirm("Delete this job post? This can't be undone.", async (confirmed) => {
     if (!confirmed) return;
-    const { ok } = await apiDelete(`/api/jobs/${jobId}`, { initData: tg.initData });
+    const { ok, status: httpStatus, data } = await apiDelete(`/api/jobs/${jobId}`, { initData: tg.initData });
     if (ok) {
-      tg.showAlert("Job deleted.");
+      safeAlert("Job deleted.");
       showView(jobDetailReturnView);
     } else {
-      tg.showAlert("Something went wrong.");
+      console.error("deleteJob failed:", httpStatus, data);
+      safeAlert("Something went wrong.");
     }
   });
 }

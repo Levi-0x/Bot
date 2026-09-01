@@ -446,7 +446,7 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   display: flex; flex-direction: column; gap: 6px; font-size: 13px;
   color: var(--text-muted); font-weight: 600; margin-bottom: 14px;
 }
-.field input, .field textarea {
+.field input, .field textarea, .field select {
   border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px;
   font-size: 15px; font-family: inherit; resize: vertical;
   color: var(--input-text) !important;
@@ -454,7 +454,21 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   opacity: 1; background: #FFFFFF;
   transition: border-color 0.2s ease;
 }
-.field input:focus, .field textarea:focus {
+/* select needs its own rule beyond the shared one above: the app's
+   global `appearance: none` reset strips the native dropdown chrome
+   from every element (including select), so without a hand-drawn
+   arrow here it just renders as a bare, unstyled box — no border-radius,
+   no padding, no arrow at all, exactly the flat black-and-white look
+   this replaces. */
+.field select {
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 16px;
+  padding-right: 40px;
+}
+.field input:focus, .field textarea:focus, .field select:focus {
   border-color: var(--secondary);
   outline: none;
 }
@@ -603,6 +617,14 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .modal-card {
   background: var(--surface); border-radius: var(--radius-xl); padding: 28px 20px;
   width: 100%; max-width: 340px; text-align: center; box-shadow: var(--shadow-lg);
+  /* Short modals (star rating, confirm dialogs) always fit in one
+     screen, so this went unnoticed until a longer form (Post a Job)
+     overflowed: with no max-height/overflow here, the card just grew
+     past the viewport with nothing to scroll it — cutting off whatever
+     didn't fit, including the Cancel button at the bottom. */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .modal-card h3 { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
 .star-row { display: flex; justify-content: center; gap: 10px; margin: 20px 0; }
