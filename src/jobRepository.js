@@ -12,11 +12,15 @@
 
 const JobPost = require("./models/JobPost");
 const { haversineKm } = require("./lib/geo");
+const { formatTravelEstimate } = require("./lib/travelTime");
 
 // Fixed for the MVP rather than letting the poster pick a number — one
 // less decision during posting, and easy to make configurable later
 // without touching anything that depends on this constant.
 const ON_SITE_RADIUS_KM = 15;
+// The radius expressed as a rough time too, so the frontend never has
+// to duplicate this math itself — just displays whatever this says.
+const ON_SITE_RADIUS_ESTIMATE = formatTravelEstimate(ON_SITE_RADIUS_KM);
 
 function toJobListItem(doc, distanceKm) {
   const out = {
@@ -35,7 +39,14 @@ function toJobListItem(doc, distanceKm) {
     response_count: doc.responses.length,
     created_at: doc.createdAt,
   };
-  if (distanceKm != null) out.distance_km = Math.round(distanceKm * 10) / 10;
+  if (distanceKm != null) {
+    out.distance_km = Math.round(distanceKm * 10) / 10;
+    // Rough estimate only — see lib/travelTime.js for exactly what
+    // assumption this is built on and why. Not a live traffic figure.
+    const est = formatTravelEstimate(distanceKm);
+    out.travel_estimate_min = est.minutes;
+    out.travel_estimate_label = est.label; // e.g. "~15 min" — ready to render as-is
+  }
   return out;
 }
 
@@ -194,5 +205,5 @@ module.exports = {
   createJobPost, getJobPosts, searchJobPosts, getJobPost, getMyJobPosts,
   respondToJob, setJobStatus, deleteJobPost,
   adminListJobs, adminSuspendJob, adminUnsuspendJob, adminDeleteJob,
-  ON_SITE_RADIUS_KM,
+  ON_SITE_RADIUS_KM, ON_SITE_RADIUS_ESTIMATE,
 };

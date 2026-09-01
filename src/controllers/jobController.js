@@ -18,6 +18,7 @@ async function list(req, res) {
     ? await jobRepo.searchJobPosts(query, opts)
     : await jobRepo.getJobPosts({ ...opts, category });
   result.on_site_radius_km = jobRepo.ON_SITE_RADIUS_KM; // so the frontend never hardcodes this number itself
+  result.on_site_radius_estimate_label = jobRepo.ON_SITE_RADIUS_ESTIMATE.label; // e.g. "~1h" — same reasoning
   res.json(result);
 }
 

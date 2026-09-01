@@ -152,12 +152,45 @@ function loadSavedLocation() {
 loadSavedLocation();
 requestUserLocation();
 
+// Generic "no photo" placeholder — a plain person silhouette, used
+// anywhere someone hasn't uploaded a real photo. Used to fall back to
+// showing initials as text instead, which read as a rendering bug more
+// than a deliberate design choice.
+function noPhotoIconHtml() {
+  return `<svg viewBox="0 0 24 24" fill="none" style="width:55%;height:55%;"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+}
+
+// Category pill icons — hand-drawn outline SVGs (same stroke-based style
+// as the bottom nav icons) instead of emoji, which rendered small and
+// inconsistently across devices. One shared accent color for every icon
+// (set via CSS on the wrapping circle, not per-category) so the row
+// reads as one consistent set rather than a handful of random colors.
+const CATEGORY_ICON_PATHS = {
+  "home services": '<path d="M4 11 12 4l8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  "digital services": '<rect x="3" y="5" width="18" height="12" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  "creative": '<path d="M12 21a9 9 0 1 1 0-18c4.5 0 8 2.5 8 6.5 0 2-1.5 3.5-3.5 3.5H15a1.7 1.7 0 0 0-1 3c0 1.5-1 2.5-2 3v2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="10.5" r="1" fill="currentColor"/><circle cx="10.5" cy="7" r="1" fill="currentColor"/><circle cx="15" cy="7.5" r="1" fill="currentColor"/>',
+  "health & wellness": '<path d="M20.8 8.6c0 4.5-8.8 10.4-8.8 10.4S3.2 13.1 3.2 8.6a4.6 4.6 0 0 1 8.8-1.8 4.6 4.6 0 0 1 8.8 1.8Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  "education": '<path d="M3 8 12 4l9 4-9 4-9-4Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 11v5c0 1 2 2.5 5 2.5s5-1.5 5-2.5v-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  "food & catering": '<path d="M6 3v7a2 2 0 0 0 4 0V3M8 3v18M17 3c-1.5 0-3 2-3 6s1.5 6 3 6 3-2 3-6-1.5-6-3-6Zm0 12v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  "transport": '<rect x="3" y="10" width="18" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M5 10l2-5h10l2 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7.5" cy="17.5" r="1.5" stroke="currentColor" stroke-width="2"/><circle cx="16.5" cy="17.5" r="1.5" stroke="currentColor" stroke-width="2"/>',
+  "fashion & beauty": '<path d="M8 4 4 8l4 3 1-2v11h6V9l1 2 4-3-4-4-3 2-3-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  "repair & maintenance": '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2-2 2.5-2.5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  "other": '<rect x="4" y="4" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/><rect x="13" y="4" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/><rect x="4" y="13" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="7" height="7" rx="1" stroke="currentColor" stroke-width="2"/>',
+};
+const DEFAULT_CATEGORY_ICON_PATH = CATEGORY_ICON_PATHS.other;
+
+function categoryIconHtml(categoryName) {
+  const key = (categoryName || "").trim().toLowerCase();
+  const pathData = CATEGORY_ICON_PATHS[key] || DEFAULT_CATEGORY_ICON_PATH;
+  return `<svg viewBox="0 0 24 24" fill="none" style="width:16px;height:16px;">${pathData}</svg>`;
+}
+
 function avatarHtml(entrepreneur, size) {
   const style = size ? `width:${size}px;height:${size}px;font-size:${size * 0.34}px;` : "";
   if (entrepreneur.id && (entrepreneur.photo_base64 || entrepreneur.photo_file_id)) {
     return `<div class="avatar-circle" style="${style}"><img src="${photoUrl(entrepreneur.id)}" alt="" onerror="this.remove()"></div>`;
   }
-  return `<div class="avatar-circle" style="background:${colorForName(entrepreneur.name)};${style}">${initials(entrepreneur.name)}</div>`;
+  return `<div class="avatar-circle" style="background:${colorForName(entrepreneur.name)};${style}display:flex;align-items:center;justify-content:center;color:white;">${noPhotoIconHtml()}</div>`;
 }
 
 // ---- API helpers ----
@@ -174,24 +207,6 @@ function asArray(data) {
 async function apiPost(path, body) {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
-}
-
-async function apiPatch(path, body) {
-  const res = await fetch(path, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
-}
-
-async function apiDelete(path, body) {
-  const res = await fetch(path, {
-    method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -277,7 +292,7 @@ document.querySelectorAll("[data-goto]").forEach(el => {
 async function loadHome() {
   const user = tg.initDataUnsafe?.user;
   const firstName = user?.first_name || "";
-  const photoUrl = user?.photo_url;
+  const telegramPhotoUrl = user?.photo_url;
 
   const storageKey = "growthhub_visited";
   const isFirstVisit = !localStorage.getItem(storageKey);
@@ -293,25 +308,41 @@ async function loadHome() {
     nameEl.textContent = firstName || "there";
   }
 
-  const avatarEl = document.getElementById("homeAvatar");
-  if (photoUrl) {
-    avatarEl.innerHTML = `<img src="${escapeHtml(photoUrl)}" alt="" onerror="this.parentElement.innerHTML='<svg viewBox=\\'0 0 24 24\\' fill=\\'none\\'><circle cx=\\'12\\' cy=\\'8\\' r=\\'4\\' stroke=\\'currentColor\\' stroke-width=\\'2\\'/><path d=\\'M4 20c0-4 4-6 8-6s8 2 8 6\\' stroke=\\'currentColor\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\'/></svg>'">`;
-  } else {
-    avatarEl.innerHTML = `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
-  }
-
-  const [categories, top, recent, featured] = await Promise.all([
+  const [categories, top, recent, featured, myProfile] = await Promise.all([
     asArray(await apiGet("/api/categories")),
     asArray(await apiGet("/api/top?limit=10")),
     asArray(await apiGet("/api/recent?limit=10")),
     asArray(await apiGet("/api/featured?limit=10")),
+    apiGet("/api/profile"),
   ]);
 
-  // Categories
+  // The welcome banner used to show the person's Telegram account photo
+  // (photo_url from initDataUnsafe) — but that's not "the picture the
+  // user uploaded" to GrowthHub, it's whatever their Telegram profile
+  // picture happens to be, which may not even exist or may be totally
+  // unrelated. Prefer the photo they actually uploaded to their listing;
+  // fall back to their Telegram photo only if they haven't registered
+  // or haven't uploaded one yet, and to a plain icon after that.
+  const avatarEl = document.getElementById("homeAvatar");
+  if (myProfile && !myProfile.error && myProfile.id && (myProfile.photo_base64 || myProfile.photo_file_id)) {
+    avatarEl.innerHTML = `<img src="${photoUrl(myProfile.id)}" alt="" data-avatar-img>`;
+    const img = avatarEl.querySelector("[data-avatar-img]");
+    img.addEventListener("error", () => { avatarEl.innerHTML = noPhotoIconHtml(); }, { once: true });
+  } else if (telegramPhotoUrl) {
+    avatarEl.innerHTML = `<img src="${escapeHtml(telegramPhotoUrl)}" alt="" data-avatar-img>`;
+    const img = avatarEl.querySelector("[data-avatar-img]");
+    img.addEventListener("error", () => { avatarEl.innerHTML = noPhotoIconHtml(); }, { once: true });
+  } else {
+    avatarEl.innerHTML = noPhotoIconHtml();
+  }
+
+  // Categories — hand-drawn outline icon (matching the mockup you
+  // approved) instead of emoji, which rendered small and inconsistently
+  // across devices in Telegram's in-app browser.
   const chipContainer = document.getElementById("homeCategoryChips");
   chipContainer.innerHTML = categories.slice(0, 10).map(c => `
     <button class="category-chip" data-category="${escapeHtml(c.name)}">
-      <span class="category-chip-icon" style="background:${escapeHtml(c.color)}">${escapeHtml(c.icon)}</span>
+      <span class="category-chip-icon">${categoryIconHtml(c.name)}</span>
       <span>${escapeHtml(c.name)}</span>
     </button>`).join("");
   chipContainer.querySelectorAll(".category-chip").forEach(chip => {
@@ -355,19 +386,29 @@ function renderCardScroll(containerId, items) {
     const serviceLabel = typeof rawService === "object" ? rawService.name : rawService;
     return `
       <div class="business-card" data-open-id="${item.id}">
-        <div class="card-avatar" style="background:${colorForName(item.name)}">
+        <div class="card-avatar" style="background:${colorForName(item.name)}" data-avatar-for="${item.id}">
           ${item.id && (item.photo_base64 || item.photo_file_id)
-            ? `<img src="${photoUrl(item.id)}" alt="" onerror="this.parentElement.textContent='${initials(item.name)}'">`
-            : initials(item.name)}
+            ? `<img src="${photoUrl(item.id)}" alt="" data-avatar-img>`
+            : noPhotoIconHtml()}
         </div>
         <div class="card-name">${escapeHtml(item.name)}</div>
         <div class="card-service">${escapeHtml(serviceLabel)}</div>
         <div class="card-rating">${ratingText}</div>
       </div>`;
   }).join("");
+  // Attached in JS rather than an inline onerror="..." attribute — the
+  // fallback icon's own SVG markup uses double quotes, which would
+  // prematurely terminate a double-quoted onerror HTML attribute and
+  // corrupt the markup. This sidesteps that entirely.
+  container.querySelectorAll("[data-avatar-img]").forEach(img => {
+    img.addEventListener("error", () => { img.parentElement.innerHTML = noPhotoIconHtml(); }, { once: true });
+  });
   container.querySelectorAll("[data-open-id]").forEach(card => {
     card.style.cursor = "pointer";
-    card.addEventListener("click", () => openDetail(Number(card.dataset.openId)));
+    card.addEventListener("click", () => openDetail(card.dataset.openId));
+    // NOTE: entrepreneur ids are Mongo ObjectId strings (24 hex chars),
+    // not numbers — Number("507f...") is NaN, which silently sent every
+    // click here to /api/entrepreneur/NaN and rendered "listing not found".
   });
 }
 
@@ -484,7 +525,10 @@ function renderResultCard(r) {
 function wireResultCardClicks(container) {
   container.querySelectorAll("[data-open-id]").forEach(card => {
     card.style.cursor = "pointer";
-    card.addEventListener("click", () => openDetail(Number(card.dataset.openId)));
+    card.addEventListener("click", () => openDetail(card.dataset.openId));
+    // NOTE: entrepreneur ids are Mongo ObjectId strings (24 hex chars),
+    // not numbers — Number("507f...") is NaN, which silently sent every
+    // click here to /api/entrepreneur/NaN and rendered "listing not found".
   });
 }
 
@@ -525,7 +569,7 @@ async function loadFavorites() {
   container.querySelectorAll("[data-fav-remove]").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const id = Number(btn.dataset.favRemove);
+      const id = btn.dataset.favRemove; // ObjectId string, not a number — same fix as openDetail() above
       await apiPost("/api/favorites/remove", { initData: tg.initData, entrepreneur_id: id });
       loadFavorites();
     });
@@ -1374,51 +1418,58 @@ document.getElementById("adminSearchBtn").addEventListener("click", async () => 
       <div class="field-hint">${r.suspended ? "SUSPENDED" : "Active"} | ${r.identity_verified ? "Verified" : ""} | ${r.avg_rating ? "\u2b50 " + r.avg_rating : ""}</div>
       <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
         ${r.suspended
-          ? `<button class="btn-small btn-green" onclick="adminUnsuspend(${r.id})">Unsuspend</button>`
-          : `<button class="btn-small btn-orange" onclick="adminSuspend(${r.id})">Suspend</button>`}
-        <button class="btn-small" onclick="adminToggleFeature(${r.id}, ${!r.force_featured})">${r.force_featured ? "Unfeature" : "Feature"}</button>
-        <button class="btn-small danger-text" onclick="adminForceRemove('${escapeHtml(r.name)}')">Remove</button>
+          ? `<button class="btn-small btn-green" data-admin-action="unsuspend" data-listing-id="${r.id}">Unsuspend</button>`
+          : `<button class="btn-small btn-orange" data-admin-action="suspend" data-listing-id="${r.id}">Suspend</button>`}
+        <button class="btn-small" data-admin-action="toggle-feature" data-listing-id="${r.id}" data-feature-value="${!r.force_featured}">${r.force_featured ? "Unfeature" : "Feature"}</button>
+        <button class="btn-small danger-text" data-admin-action="remove" data-listing-name="${escapeHtml(r.name)}">Remove</button>
       </div>
     </div>`).join("");
+  // Wired via addEventListener + data attributes rather than inline
+  // onclick="..." strings — entrepreneur ids are Mongo ObjectId strings
+  // (24 hex chars), and embedding one unquoted into an onclick attribute
+  // (onclick="fn(507f1f77...)") is invalid JS syntax; it threw a syntax
+  // error the instant any of these were clicked, silently, with no
+  // network request ever sent. Listing names have the same problem for
+  // any name containing an apostrophe (breaks the quoted JS string).
+  // Reading values from data-* attributes sidesteps both issues.
+  container.querySelectorAll("[data-admin-action]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.adminAction;
+      if (action === "suspend") adminSuspend(btn.dataset.listingId);
+      else if (action === "unsuspend") adminUnsuspend(btn.dataset.listingId);
+      else if (action === "toggle-feature") adminToggleFeature(btn.dataset.listingId, btn.dataset.featureValue === "true");
+      else if (action === "remove") adminForceRemove(btn.dataset.listingName);
+    });
+  });
 });
 
 async function adminSuspend(id) {
-  const { ok } = await apiPost(`/api/admin/listings/${id}/suspend`, { initData: tg.initData });
-  tg.showAlert(ok ? "Suspended." : "Error.");
+  const { ok, status, data } = await apiPost(`/api/admin/listings/${id}/suspend`, { initData: tg.initData });
+  if (!ok) console.error("adminSuspend failed:", status, data);
+  safeAlert(ok ? "Suspended." : "Error.");
   if (ok) document.getElementById("adminSearchBtn").click();
 }
 async function adminUnsuspend(id) {
-  const { ok } = await apiPost(`/api/admin/listings/${id}/unsuspend`, { initData: tg.initData });
-  tg.showAlert(ok ? "Unsuspended." : "Error.");
+  const { ok, status, data } = await apiPost(`/api/admin/listings/${id}/unsuspend`, { initData: tg.initData });
+  if (!ok) console.error("adminUnsuspend failed:", status, data);
+  safeAlert(ok ? "Unsuspended." : "Error.");
   if (ok) document.getElementById("adminSearchBtn").click();
 }
 async function adminToggleFeature(id, featured) {
-  const { ok } = await apiPost("/api/admin/feature", { initData: tg.initData, listing_id: id, featured });
-  tg.showAlert(ok ? (featured ? "Featured." : "Unfeatured.") : "Error.");
+  const { ok, status, data } = await apiPost("/api/admin/feature", { initData: tg.initData, listing_id: id, featured });
+  if (!ok) console.error("adminToggleFeature failed:", status, data);
+  safeAlert(ok ? (featured ? "Featured." : "Unfeatured.") : "Error.");
   if (ok) document.getElementById("adminSearchBtn").click();
 }
 function adminForceRemove(name) {
-  tg.showConfirm(`Remove "${name}"?`, async (confirmed) => {
+  safeConfirm(`Remove "${name}"?`, async (confirmed) => {
     if (!confirmed) return;
-    const { ok, data } = await apiPost("/api/admin/forceremove", { initData: tg.initData, name });
-    tg.showAlert(ok && data.removed ? "Removed." : "Not found.");
+    const { ok, status, data } = await apiPost("/api/admin/forceremove", { initData: tg.initData, name });
+    if (!ok) console.error("adminForceRemove failed:", status, data);
+    safeAlert(ok && data.removed ? "Removed." : "Not found.");
     if (ok) document.getElementById("adminSearchBtn").click();
   });
 }
-
-// ---- Merge Services ----
-document.getElementById("adminMergeBtn").addEventListener("click", async () => {
-  const source = Number(document.getElementById("adminMergeSource").value.trim());
-  const target = Number(document.getElementById("adminMergeTarget").value.trim());
-  if (!source || !target) return tg.showAlert("Enter both service IDs.");
-  if (source === target) return tg.showAlert("Source and target must differ.");
-  tg.showConfirm(`Merge service #${source} into #${target}?`, async (confirmed) => {
-    if (!confirmed) return;
-    const { ok, data } = await apiPost("/api/admin/merge_services", { initData: tg.initData, source_id: source, target_id: target });
-    tg.showAlert(data?.message || (ok ? "Done." : "Error."));
-    if (ok) { document.getElementById("adminMergeSource").value = ""; document.getElementById("adminMergeTarget").value = ""; }
-  });
-});
 
 // ---- Audit Log ----
 document.getElementById("adminAuditBtn").addEventListener("click", async () => {
@@ -1440,6 +1491,10 @@ document.getElementById("adminAuditBtn").addEventListener("click", async () => {
 let jobsMode = "open"; // "open" | "mine"
 let jobSearchQuery = "";
 let jobSearchDebounce = null;
+// Cached from the last /api/jobs response so the compose form's on-site
+// hint doesn't need its own extra request just to know the radius.
+let onSiteRadiusKm = 15;
+let onSiteRadiusLabel = "~1h";
 let jobDetailReturnView = "jobs";
 let currentJobDetailId = null;
 
@@ -1474,6 +1529,10 @@ async function loadJobs() {
   if (jobSearchQuery) params.set("q", jobSearchQuery);
   if (userLat != null && userLng != null) { params.set("lat", userLat); params.set("lng", userLng); }
   const data = await apiGet(`/api/jobs?${params.toString()}`);
+  if (data && data.on_site_radius_km != null) {
+    onSiteRadiusKm = data.on_site_radius_km;
+    onSiteRadiusLabel = data.on_site_radius_estimate_label || onSiteRadiusLabel;
+  }
   renderJobList(asArray(data?.results || data), false);
 }
 
@@ -1499,8 +1558,14 @@ function renderJobCard(job, mine) {
   const statusClass = job.status === "open" ? "job-status-open" : "job-status-fulfilled";
   const metaBits = [];
   if (job.category) metaBits.push(escapeHtml(job.category));
-  if (job.distance_km != null) metaBits.push(`${job.distance_km} km away`);
-  else if (job.location) metaBits.push(escapeHtml(job.location));
+  if (job.distance_km != null) {
+    // Distance is the real number (from actual haversine math); the
+    // minutes figure next to it is a rough, static-speed estimate for
+    // orientation only — see lib/travelTime.js on the backend for
+    // exactly what that assumes and why it's deliberately conservative.
+    const timePart = job.travel_estimate_label ? ` \u00b7 ${job.travel_estimate_label} (traffic permitting)` : "";
+    metaBits.push(`${job.distance_km}km away${timePart}`);
+  } else if (job.location) metaBits.push(escapeHtml(job.location));
   metaBits.push(`${job.response_count} response${job.response_count === 1 ? "" : "s"}`);
 
   return `
@@ -1549,6 +1614,7 @@ function openPostJobModal() {
         <span>This must be done on-site (in person)?</span>
         <input type="checkbox" id="jobRequiresOnSite" />
       </label>
+      <p class="field-hint" id="jobOnSiteHint" style="display:none;">Only shown to freelancers within ${onSiteRadiusKm}km (${onSiteRadiusLabel}, traffic permitting) who've also shared their location.</p>
       <label class="field" id="jobLocationField" style="display:none;">Location
         <input type="text" id="jobLocationInput" placeholder="e.g. Ikeja, Lagos" />
       </label>
@@ -1562,6 +1628,7 @@ function openPostJobModal() {
   });
   document.getElementById("jobRequiresOnSite").addEventListener("change", (e) => {
     document.getElementById("jobLocationField").style.display = e.target.checked ? "block" : "none";
+    document.getElementById("jobOnSiteHint").style.display = e.target.checked ? "block" : "none";
   });
 
   document.getElementById("jobPostSubmitBtn").addEventListener("click", async () => {
