@@ -60,10 +60,22 @@ async function listAdmins(req, res) {
   const addedAdmins = dbAdmins
     .filter(a => !botModule.isRootAdmin(a.telegramId))
     .sort((a, b) => a.telegramId - b.telegramId);
-  const rootAdminDetails = rootIds.map(id => ({
-    telegramId: id,
-    name: dbAdmins.find(a => a.telegramId === id)?.name || null,
-  }));
+  
+  // Look up names for root admins (they may not be in the Admin collection)
+  const rootAdminDetails = rootIds.map(id => {
+    const fromDb = dbAdmins.find(a => a.telegramId === id);
+    return { telegramId: id, name: fromDb?.name || null };
+  });
+  
+  // If any root admins have no name from DB, look them up directly
+  const missingRootIds = rootAdminDetails.filter(a => !a.name).map(a => a.telegramId);
+  if (missingRootIds.length > 0) {
+    const entrepreneurs = await repo.getEntrepreneurNames(missingRootIds);
+    for (const admin of rootAdminDetails) {
+      if (!admin.name) admin.name = entrepreneurs.get(admin.telegramId) || null;
+    }
+  }
+  
   res.json({ root_admins: rootAdminDetails, added_admins: addedAdmins });
 }
 

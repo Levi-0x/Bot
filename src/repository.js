@@ -799,6 +799,11 @@ async function getAdminDetails() {
   }));
 }
 
+async function getEntrepreneurNames(telegramIds) {
+  const entrepreneurs = await Entrepreneur.find({ telegramId: { $in: telegramIds } }, "telegramId name");
+  return new Map(entrepreneurs.map(e => [e.telegramId, e.name]));
+}
+
 // ---------- Phone verification ----------
 
 async function setVerifiedPhone(telegramId, phone) {
@@ -852,7 +857,7 @@ module.exports = {
   getEntrepreneurAnalytics, setListingPlan, upgradeToFreelancer,
   getPublicProfile, getPhotoFields, getEntrepreneurProfile,
   forceDeleteByName, deleteEntrepreneur, addServices, removeServices,
-  getAdminIdsFromDb, addAdmin, removeAdmin, getAdminDetails,
+  getAdminIdsFromDb, addAdmin, removeAdmin, getAdminDetails, getEntrepreneurNames,
   setVerifiedPhone, getPhoneVerification,
   getStats, getAllTelegramIds,
 };
