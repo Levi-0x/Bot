@@ -42,7 +42,7 @@ async function getFeatured(req, res) {
 }
 
 async function getEntrepreneur(req, res) {
-  const profile = await repo.getPublicProfile(req.params.id);
+  const profile = await repo.getPublicProfile(req.params.id, req.user.id);
   if (!profile) return res.status(404).json({ error: "not_found" });
   profile.is_favorited = await repo.isFavorited(req.user.id, req.params.id);
   res.json(profile);

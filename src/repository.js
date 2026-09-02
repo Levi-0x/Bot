@@ -134,15 +134,19 @@ function toFullProfile(doc, { includePrivate = false } = {}) {
     })),
     ...stats,
   };
-  // telegram_id, home_address, and suspended are only ever meant for the
-  // profile owner or an admin — a stranger viewing someone's public
-  // listing should never receive them. This flag is how the same helper
-  // serves both the public detail route and the "my profile"/admin routes
-  // without duplicating the whole object shape twice.
+  // telegram_id, home_address, suspended, and saved_location are only
+  // ever meant for the profile owner or an admin — a stranger viewing
+  // someone's public listing should never receive precise coordinates
+  // for where they registered from. This flag is how the same helper
+  // serves both the public detail route and the "my profile"/admin
+  // routes without duplicating the whole object shape twice.
   if (includePrivate) {
     out.telegram_id = doc.telegramId;
     out.home_address = doc.homeAddress || "";
     out.suspended = doc.suspended;
+    if (doc.location && doc.location.lat != null && doc.location.lng != null) {
+      out.saved_location = { lat: doc.location.lat, lng: doc.location.lng };
+    }
   }
   return out;
 }
@@ -678,10 +682,17 @@ async function upgradeToFreelancer(telegramId) {
 
 // ---------- Profile management ----------
 
-async function getPublicProfile(entrepreneurId) {
+async function getPublicProfile(entrepreneurId, viewerTelegramId = null) {
   const doc = await Entrepreneur.findOne({ _id: entrepreneurId, userType: "freelancer", suspended: { $ne: true } });
   if (!doc) return null;
-  return toFullProfile(doc); // includePrivate defaults to false — strangers don't get telegram_id
+  const out = toFullProfile(doc); // includePrivate defaults to false — strangers don't get telegram_id
+  // is_owner is derived here (before telegram_id gets stripped by
+  // toFullProfile above) so the frontend has a reliable, always-correct
+  // way to know "is this my own listing?" without ever exposing the
+  // actual telegram_id to a stranger, and without depending on some
+  // other page having already been visited this session.
+  out.is_owner = viewerTelegramId != null && doc.telegramId === viewerTelegramId;
+  return out;
 }
 
 async function getPhotoFields(entrepreneurId) {

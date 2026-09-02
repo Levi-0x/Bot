@@ -801,8 +801,8 @@ async function openDetail(entrepreneurId) {
         <div class="detail-row"><span class="label">Website</span><span class="value">${escapeHtml(profile.website) || "\u2014"}</span></div>
       </div>
     </div>
-    ${profile.telegram_username && currentProfile?.id !== entrepreneurId ? `<a class="btn-telegram" href="https://t.me/${escapeHtml(profile.telegram_username)}" target="_blank"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0088cc"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg> Contact on Telegram</a>` : ""}
-    ${currentProfile?.id === entrepreneurId ? "" : `<button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>`}
+    ${profile.telegram_username && !profile.is_owner ? `<button class="btn-telegram" data-telegram-username="${escapeHtml(profile.telegram_username)}"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0088cc"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg> Contact on Telegram</button>` : ""}
+    ${profile.is_owner ? "" : `<button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>`}
     <div class="detail-section" style="margin-top:22px;">
       <div class="detail-section-title">Reviews</div>
       <div class="reviews-list">${reviewsHtml}</div>
@@ -810,6 +810,25 @@ async function openDetail(entrepreneurId) {
 
   const rateBtn = document.getElementById("detailRateBtn");
   if (rateBtn) rateBtn.addEventListener("click", () => openRatingModal(entrepreneurId, profile.name));
+
+  // tg.openTelegramLink() instead of a plain <a href="https://t.me/...">
+  // — a normal link fully closes the mini app when Telegram's webview
+  // intercepts it. openTelegramLink is Telegram's own method for this
+  // exact handoff and, since Bot API 7.0, no longer closes the mini app
+  // when called (it used to, on older Bot API versions). Leaving to an
+  // actual different chat is inherent to "contact via Telegram DM" —
+  // this only smooths the transition, it can't avoid it entirely.
+  const telegramBtn = document.querySelector("[data-telegram-username]");
+  if (telegramBtn) {
+    telegramBtn.addEventListener("click", () => {
+      const username = telegramBtn.dataset.telegramUsername;
+      if (tg.openTelegramLink) {
+        tg.openTelegramLink(`https://t.me/${username}`);
+      } else {
+        window.open(`https://t.me/${username}`, "_blank");
+      }
+    });
+  }
 }
 
 function updateFavButton() {
@@ -1585,6 +1604,14 @@ function renderJobCard(job, mine) {
 document.getElementById("postJobBtn").addEventListener("click", () => openPostJobModal());
 
 function openPostJobModal() {
+  // Prefer the address the user already saved on their own profile over
+  // making them type it again — same "smart default, still editable"
+  // pattern used for the poster-name field. Falls back to their live
+  // browser location only if they never saved one, and to nothing (a
+  // blank field) if neither exists.
+  const savedAddress = currentProfile?.business_address || currentProfile?.home_address || "";
+  const savedLoc = currentProfile?.saved_location || null;
+
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
@@ -1616,7 +1643,8 @@ function openPostJobModal() {
       </label>
       <p class="field-hint" id="jobOnSiteHint" style="display:none;">Only shown to freelancers within ${onSiteRadiusKm}km (${onSiteRadiusLabel}, traffic permitting) who've also shared their location.</p>
       <label class="field" id="jobLocationField" style="display:none;">Location
-        <input type="text" id="jobLocationInput" placeholder="e.g. Ikeja, Lagos" />
+        <input type="text" id="jobLocationInput" placeholder="e.g. Ikeja, Lagos" value="${escapeHtml(savedAddress)}" />
+        ${savedAddress ? `<span class="field-hint">Filled in from your saved profile address — edit if this job is somewhere else.</span>` : ""}
       </label>
       <button class="btn-primary" id="jobPostSubmitBtn">Post Job</button>
       <button class="btn-secondary btn-modal-cancel" id="jobPostCancelBtn">Cancel</button>
@@ -1653,7 +1681,14 @@ function openPostJobModal() {
       requires_on_site: requiresOnSite,
       location_address: locationAddress,
     };
-    if (userLat != null && userLng != null) { payload.lat = userLat; payload.lng = userLng; }
+    // Saved profile location wins over live GPS here on purpose — the
+    // request was specifically "use the saved profile location," and a
+    // device's current GPS position isn't necessarily where the JOB is
+    // (someone could be posting from their phone at work about a job at
+    // home). Live GPS only steps in as a fallback if there's no saved
+    // location at all.
+    const jobLoc = savedLoc || (userLat != null && userLng != null ? { lat: userLat, lng: userLng } : null);
+    if (jobLoc) { payload.lat = jobLoc.lat; payload.lng = jobLoc.lng; }
 
     const { ok, data } = await apiPost("/api/jobs", payload);
     if (ok) {
