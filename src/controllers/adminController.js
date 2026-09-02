@@ -55,9 +55,16 @@ async function broadcast(req, res) {
 }
 
 async function listAdmins(req, res) {
-  const rootIds = [...botModule.rootAdminIds()].sort((a, b) => a - b).map(String);
-  const dbIds = [...(await repo.getAdminIdsFromDb())].sort((a, b) => a - b);
-  res.json({ root_admins: rootIds, added_admins: dbIds });
+  const rootIds = [...botModule.rootAdminIds()].sort((a, b) => a - b);
+  const dbAdmins = await repo.getAdminDetails();
+  const addedAdmins = dbAdmins
+    .filter(a => !botModule.isRootAdmin(a.telegramId))
+    .sort((a, b) => a.telegramId - b.telegramId);
+  const rootAdminDetails = rootIds.map(id => ({
+    telegramId: id,
+    name: dbAdmins.find(a => a.telegramId === id)?.name || null,
+  }));
+  res.json({ root_admins: rootAdminDetails, added_admins: addedAdmins });
 }
 
 async function addAdmin(req, res) {

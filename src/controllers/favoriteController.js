@@ -7,7 +7,11 @@ async function getFavorites(req, res) {
 async function addFavorite(req, res) {
   const { entrepreneur_id: entrepreneurId } = req.body || {};
   if (!entrepreneurId) return res.status(400).json({ error: "invalid_input" });
-  await repo.addFavorite(req.user.id, entrepreneurId);
+  const result = await repo.addFavorite(req.user.id, entrepreneurId);
+  if (!result.success) {
+    if (result.reason === "self_favorite") return res.status(400).json({ error: "self_favorite", message: "You can't favorite your own listing." });
+    return res.status(404).json({ error: result.reason });
+  }
   res.json({ status: "ok" });
 }
 

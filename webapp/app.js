@@ -727,7 +727,7 @@ async function openDetail(entrepreneurId) {
 
   // Update fav button
   const favBtn = document.getElementById("detailFavBtn");
-  favBtn.style.display = "flex";
+  favBtn.style.display = profile.is_owner ? "none" : "flex";
   updateFavButton();
 
   const ratingText = profile.avg_rating ? `\u2b50 ${profile.avg_rating} (${profile.rating_count} reviews)` : "No ratings yet";
@@ -779,7 +779,7 @@ async function openDetail(entrepreneurId) {
         ${rev.comment ? `<p class="review-comment">${escapeHtml(rev.comment)}</p>` : ""}
         ${rev.created_at ? `<div class="review-date">${escapeHtml(rev.created_at.slice(0, 10))}</div>` : ""}
       </div>`).join("")
-    : `<p class="field-hint">No reviews yet \u2014 be the first to rate ${escapeHtml(profile.name)}.</p>`;
+    : `<p class="field-hint">${profile.is_owner ? "No reviews yet." : `No reviews yet \u2014 be the first to rate ${escapeHtml(profile.name)}.`}</p>`;
 
   container.innerHTML = `
     <div class="profile-hero">
@@ -802,7 +802,7 @@ async function openDetail(entrepreneurId) {
       </div>
     </div>
     ${profile.telegram_username && !profile.is_owner ? `<button class="btn-telegram" data-telegram-username="${escapeHtml(profile.telegram_username)}"><svg width="18" height="18" viewBox="0 0 24 24" fill="#0088cc"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg> Contact on Telegram</button>` : ""}
-    ${profile.is_owner ? "" : `<button class="btn-primary" id="detailRateBtn">Rate ${escapeHtml(profile.name)}</button>`}
+    ${profile.is_owner ? "" : `<button class="btn-primary" id="detailRateBtn" style="margin-top:10px;">Rate ${escapeHtml(profile.name)}</button>`}
     <div class="detail-section" style="margin-top:22px;">
       <div class="detail-section-title">Reviews</div>
       <div class="reviews-list">${reviewsHtml}</div>
@@ -1393,8 +1393,34 @@ async function loadAdminPanel() {
 async function refreshAdminList() {
   const data = await apiGet("/api/admin/list_admins");
   if (data.error) return;
-  document.getElementById("adminListDisplay").innerHTML =
-    `<b>Root:</b> ${data.root_admins.join(", ") || "none"}<br><b>Added:</b> ${data.added_admins.join(", ") || "none"}`;
+  
+  const renderAdmin = (admin, isRoot = false) => {
+    const displayName = admin.name ? escapeHtml(admin.name) : `#${admin.telegramId}`;
+    const badge = isRoot ? '<span class="admin-badge owner">Owner</span>' : "";
+    const removeBtn = isRoot ? "" : `<button class="btn-remove-admin" data-id="${admin.telegramId}">Remove</button>`;
+    return `<div class="admin-row"><span class="admin-name">${escapeHtml(displayName)}${badge}</span>${removeBtn}</div>`;
+  };
+  
+  let html = "";
+  if (data.root_admins && data.root_admins.length > 0) {
+    html += data.root_admins.map(admin => renderAdmin(admin, true)).join("");
+  }
+  if (data.added_admins && data.added_admins.length > 0) {
+    html += data.added_admins.map(admin => renderAdmin(admin, false)).join("");
+  }
+  if (!html) html = '<div class="field-hint">No admins found.</div>';
+  
+  document.getElementById("adminListDisplay").innerHTML = html;
+  
+  document.querySelectorAll(".btn-remove-admin").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = Number(btn.dataset.id);
+      if (!id) return;
+      const { ok, data } = await apiPost("/api/admin/remove_admin", { initData: tg.initData, telegram_id: id });
+      if (data?.error === "is_root_admin") tg.showAlert("Root admin — remove via Render.");
+      else { tg.showAlert(ok && data.removed ? "Removed." : "Not found."); if (ok && data.removed) refreshAdminList(); }
+    });
+  });
 }
 
 document.getElementById("adminBack").addEventListener("click", () => showView("profile"));
@@ -1414,13 +1440,6 @@ document.getElementById("addAdminBtn").addEventListener("click", async () => {
   const { ok } = await apiPost("/api/admin/add_admin", { initData: tg.initData, telegram_id: id });
   tg.showAlert(ok ? "Admin added." : "Error.");
   if (ok) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); }
-});
-document.getElementById("removeAdminBtn").addEventListener("click", async () => {
-  const id = Number(document.getElementById("adminIdInput").value.trim());
-  if (!id) return tg.showAlert("Enter a valid ID.");
-  const { ok, data } = await apiPost("/api/admin/remove_admin", { initData: tg.initData, telegram_id: id });
-  if (data?.error === "is_root_admin") tg.showAlert("Root admin \u2014 remove via Render.");
-  else { tg.showAlert(ok && data.removed ? "Removed." : "Not found."); if (ok && data.removed) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); } }
 });
 
 // ---- Search Listings ----

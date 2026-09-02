@@ -90,6 +90,14 @@ function toListItem(doc, distanceKm) {
     business_address: doc.businessAddress || "",
     website: doc.website || "",
     photo_file_id: doc.photoFileId || "",
+    // Presence flag only — never the actual image bytes. The real photo
+    // is fetched separately via /api/photo/:id (see photoUrl() in
+    // app.js) so list/profile responses don't balloon with embedded
+    // base64 data. This field was previously missing entirely — the
+    // upload always saved correctly, but was never serialized into any
+    // API response, so an uploaded photo silently never showed up
+    // anywhere (Home, Explore, Favorites, Profile, welcome banner).
+    photo_base64: !!doc.photoBase64,
     gallery: doc.gallery || [],
     business_type: doc.businessType || "",
     user_type: doc.userType,
@@ -118,6 +126,14 @@ function toFullProfile(doc, { includePrivate = false } = {}) {
     business_address: doc.businessAddress || "",
     website: doc.website || "",
     photo_file_id: doc.photoFileId || "",
+    // Presence flag only — never the actual image bytes. The real photo
+    // is fetched separately via /api/photo/:id (see photoUrl() in
+    // app.js) so list/profile responses don't balloon with embedded
+    // base64 data. This field was previously missing entirely — the
+    // upload always saved correctly, but was never serialized into any
+    // API response, so an uploaded photo silently never showed up
+    // anywhere (Home, Explore, Favorites, Profile, welcome banner).
+    photo_base64: !!doc.photoBase64,
     gallery: doc.gallery || [],
     business_type: doc.businessType || "",
     user_type: doc.userType,
@@ -379,14 +395,17 @@ async function getReviews(entrepreneurId, limit = 50) {
 // ---------- Favorites ----------
 
 async function addFavorite(userTelegramId, entrepreneurId) {
+  const doc = await Entrepreneur.findById(entrepreneurId);
+  if (!doc) return { success: false, reason: "not_found" };
+  if (doc.telegramId === userTelegramId) return { success: false, reason: "self_favorite" };
   try {
     await Favorite.create({ userTelegramId, entrepreneurId });
-    return true;
+    return { success: true };
   } catch {
     // The unique compound index on Favorite (see models/Favorite.js)
     // makes a duplicate favorite throw here instead of silently
     // succeeding — we just treat that as "already favorited."
-    return false;
+    return { success: false, reason: "already_favorited" };
   }
 }
 
@@ -765,6 +784,19 @@ async function addAdmin(telegramId, addedBy) {
 async function removeAdmin(telegramId) {
   const res = await Admin.deleteOne({ telegramId });
   return res.deletedCount > 0;
+}
+
+async function getAdminDetails() {
+  const admins = await Admin.find({}, "telegramId addedBy addedAt");
+  const allIds = admins.map(a => a.telegramId);
+  const entrepreneurs = await Entrepreneur.find({ telegramId: { $in: allIds } }, "telegramId name");
+  const nameMap = new Map(entrepreneurs.map(e => [e.telegramId, e.name]));
+  return admins.map(a => ({
+    telegramId: a.telegramId,
+    name: nameMap.get(a.telegramId) || null,
+    addedBy: a.addedBy,
+    addedAt: a.addedAt,
+  }));
 }
 
 // ---------- Phone verification ----------
