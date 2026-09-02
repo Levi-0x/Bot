@@ -852,7 +852,7 @@ module.exports = {
   getEntrepreneurAnalytics, setListingPlan, upgradeToFreelancer,
   getPublicProfile, getPhotoFields, getEntrepreneurProfile,
   forceDeleteByName, deleteEntrepreneur, addServices, removeServices,
-  getAdminIdsFromDb, addAdmin, removeAdmin,
+  getAdminIdsFromDb, addAdmin, removeAdmin, getAdminDetails,
   setVerifiedPhone, getPhoneVerification,
   getStats, getAllTelegramIds,
 };
