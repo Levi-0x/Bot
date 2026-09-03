@@ -82,7 +82,15 @@ async function listAdmins(req, res) {
 async function addAdmin(req, res) {
   const newAdminId = (req.body || {}).telegram_id;
   if (typeof newAdminId !== "number") return res.status(400).json({ error: "invalid_telegram_id" });
-  await repo.addAdmin(newAdminId, req.user.id);
+  // Both checked before writing anything — a Tier 1 admin is already an
+  // admin from ADMIN_IDS alone, adding them to the DB collection too
+  // would just create a redundant row (harmless, since listAdmins
+  // filters root admins out of the "added" list either way, but
+  // pointless and worth telling the caller plainly instead of a silent
+  // no-op that looks like it worked).
+  if (botModule.isRootAdmin(newAdminId)) return res.status(400).json({ error: "already_root_admin" });
+  const created = await repo.addAdmin(newAdminId, req.user.id);
+  if (!created) return res.status(400).json({ error: "already_admin" });
   await repo.logAdminAction(req.user.id, "add_admin", { targetType: "user", targetId: String(newAdminId) });
   res.json({ status: "ok" });
 }

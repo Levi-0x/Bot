@@ -1442,12 +1442,46 @@ document.getElementById("adminBroadcastBtn").addEventListener("click", () => {
     if (ok) document.getElementById("adminBroadcastText").value = "";
   });
 });
+// Shared between both "make someone an admin" entry points below (by
+// Telegram ID directly, and by name/email search) so the two don't
+// drift into different wording for the same two error cases.
+function addAdminErrorMessage(errorCode) {
+  if (errorCode === "already_root_admin") return "Already a Tier 1 admin (set in .env) — nothing to add.";
+  if (errorCode === "already_admin") return "Already an admin.";
+  return "Error.";
+}
+
 document.getElementById("addAdminBtn").addEventListener("click", async () => {
   const id = Number(document.getElementById("adminIdInput").value.trim());
   if (!id) return tg.showAlert("Enter a valid ID.");
-  const { ok } = await apiPost("/api/admin/add_admin", { initData: tg.initData, telegram_id: id });
-  tg.showAlert(ok ? "Admin added." : "Error.");
+  const { ok, data } = await apiPost("/api/admin/add_admin", { initData: tg.initData, telegram_id: id });
+  tg.showAlert(ok ? "Admin added." : addAdminErrorMessage(data?.error));
   if (ok) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); }
+});
+
+// Reuses the same search_listings endpoint Search Listings uses (name/
+// email partial match) rather than a second, separate search backend —
+// "find a user to promote" and "find a user to moderate" are the exact
+// same lookup, just followed by a different action button.
+document.getElementById("adminUserSearchBtn").addEventListener("click", async () => {
+  const q = document.getElementById("adminUserSearchInput").value.trim();
+  const container = document.getElementById("adminUserSearchResults");
+  if (!q) { container.innerHTML = ""; return; }
+  const data = await apiGet(`/api/admin/search_listings?q=${encodeURIComponent(q)}`);
+  const results = (data && data.results) || [];
+  if (!results.length) { container.innerHTML = `<p class="field-hint">No matches.</p>`; return; }
+  container.innerHTML = results.map(r => `
+    <div class="admin-row">
+      <span class="admin-name">${escapeHtml(r.name)} <span class="field-hint">(${escapeHtml(r.user_type)})</span></span>
+      <button class="btn-small" data-make-admin-id="${r.telegram_id}" data-make-admin-name="${escapeHtml(r.name)}">Make Admin</button>
+    </div>`).join("");
+  container.querySelectorAll("[data-make-admin-id]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const { ok, data: res } = await apiPost("/api/admin/add_admin", { initData: tg.initData, telegram_id: Number(btn.dataset.makeAdminId) });
+      safeAlert(ok ? `${btn.dataset.makeAdminName} added as admin.` : addAdminErrorMessage(res?.error));
+      if (ok) { document.getElementById("adminUserSearchInput").value = ""; container.innerHTML = ""; refreshAdminList(); }
+    });
+  });
 });
 
 // ---- Search Listings ----

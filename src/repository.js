@@ -585,7 +585,20 @@ async function adminSearchListings(query, limit = 20, offset = 0) {
     const stats = computeRatingStats(d.ratings);
     return {
       id: d._id.toString(), name: d.name, email: d.email, user_type: d.userType,
+      // telegram_id is normally kept private (see toFullProfile's
+      // includePrivate gating) — but this whole function is already
+      // authAdmin-only, and an admin needs it here to actually act on a
+      // result (suspend/ban already identify by Mongo _id, but "make
+      // this person an admin" needs their Telegram ID specifically).
+      telegram_id: d.telegramId,
       suspended: isCurrentlySuspended(d), suspended_until: d.suspendedUntil || null,
+      // Missing here for a while — the frontend's Feature/Unfeature
+      // button label reads r.force_featured to decide which word to
+      // show, but with this field absent from the response that check
+      // was always falsy, so the button always said "Feature," even
+      // for a listing that was already featured, with no way to tell
+      // from this list which listings actually were.
+      force_featured: !!d.forceFeatured,
       identity_verified: d.identityVerified, phone_verified: d.phoneVerified,
       created_at: d.createdAt, services: (d.services || []).map((s) => s.name), ...stats,
     };
@@ -855,8 +868,13 @@ async function getAdminIdsFromDb() {
   return new Set(docs.map((d) => d.telegramId));
 }
 
+// Returns true if this created a genuinely new admin row, false if the
+// telegramId was already in the collection (upsert with $setOnInsert
+// silently no-ops on an existing match, so the caller needs
+// upsertedCount specifically to tell those two cases apart).
 async function addAdmin(telegramId, addedBy) {
-  await Admin.updateOne({ telegramId }, { $setOnInsert: { addedBy } }, { upsert: true });
+  const res = await Admin.updateOne({ telegramId }, { $setOnInsert: { addedBy } }, { upsert: true });
+  return res.upsertedCount > 0;
 }
 
 async function removeAdmin(telegramId) {
