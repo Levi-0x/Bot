@@ -24,6 +24,7 @@ const Admin = require("./models/Admin");
 const SearchLog = require("./models/SearchLog");
 const AdminAction = require("./models/AdminAction");
 const Notification = require("./models/Notification");
+const BannedUser = require("./models/BannedUser");
 const { stem } = require("./lib/stem");
 const { haversineKm } = require("./lib/geo");
 
@@ -159,12 +160,43 @@ function toFullProfile(doc, { includePrivate = false } = {}) {
   if (includePrivate) {
     out.telegram_id = doc.telegramId;
     out.home_address = doc.homeAddress || "";
-    out.suspended = doc.suspended;
+    out.suspended = isCurrentlySuspended(doc);
+    out.suspended_until = doc.suspendedUntil || null;
     if (doc.location && doc.location.lat != null && doc.location.lng != null) {
       out.saved_location = { lat: doc.location.lat, lng: doc.location.lng };
     }
   }
   return out;
+}
+
+// The single source of truth for "is this listing suspended right now."
+// A listing can be suspended two ways: indefinitely (`suspended: true`,
+// `suspendedUntil: null`) or for a set duration (`suspended: true`,
+// `suspendedUntil` set to when it lifts). Once `suspendedUntil` is in
+// the past, it's no longer suspended even though the boolean flag is
+// still `true` on the document — nothing goes back and flips that flag
+// automatically, so never read `doc.suspended` alone anywhere. This
+// function (and notSuspendedFilter() below, its query-side equivalent)
+// are the only two places that should ever decide this.
+function isCurrentlySuspended(doc) {
+  if (!doc.suspended) return false;
+  if (doc.suspendedUntil == null) return true; // indefinite suspension
+  return doc.suspendedUntil > new Date();
+}
+
+// Query-side equivalent of isCurrentlySuspended() above, for filtering
+// listings OUT of public queries (search, top, recent, featured,
+// favorites, single-listing lookup). Spread into any filter object
+// alongside other conditions, e.g. { userType: "freelancer",
+// ...notSuspendedFilter() } — Mongo ANDs a plain field with a top-level
+// $or automatically, no extra $and wrapper needed.
+function notSuspendedFilter() {
+  return {
+    $or: [
+      { suspended: { $ne: true } },
+      { suspendedUntil: { $ne: null, $lte: new Date() } },
+    ],
+  };
 }
 
 // ---------- Entrepreneur registration ----------
@@ -214,7 +246,7 @@ async function registerEntrepreneur(telegramId, fields, serviceNames) {
 // ---------- Searching ----------
 
 async function getTopEntrepreneurs(limit = 5) {
-  const docs = await Entrepreneur.find({ userType: "freelancer", suspended: { $ne: true } });
+  const docs = await Entrepreneur.find({ userType: "freelancer", ...notSuspendedFilter() });
   return docs
     .map((d) => toListItem(d))
     .sort((a, b) => (b.avg_rating ?? -1) - (a.avg_rating ?? -1) || b.rating_count - a.rating_count)
@@ -222,14 +254,14 @@ async function getTopEntrepreneurs(limit = 5) {
 }
 
 async function getRecentEntrepreneurs(limit = 10) {
-  const docs = await Entrepreneur.find({ userType: "freelancer", suspended: { $ne: true } })
+  const docs = await Entrepreneur.find({ userType: "freelancer", ...notSuspendedFilter() })
     .sort({ createdAt: -1 })
     .limit(limit);
   return docs.map((d) => toListItem(d));
 }
 
 async function getFeaturedEntrepreneurs(limit = 10) {
-  const docs = await Entrepreneur.find({ userType: "freelancer", suspended: { $ne: true } });
+  const docs = await Entrepreneur.find({ userType: "freelancer", ...notSuspendedFilter() });
   return docs
     .map((d) => ({ doc: d, item: toListItem(d) }))
     .filter(({ doc, item }) => doc.forceFeatured || (item.avg_rating >= 4.0 && item.rating_count >= 3))
@@ -259,7 +291,7 @@ async function getFeaturedEntrepreneurs(limit = 10) {
 //                 frontend expects
 async function getAllServices() {
   return Entrepreneur.aggregate([
-    { $match: { userType: "freelancer", suspended: { $ne: true } } },
+    { $match: { userType: "freelancer", ...notSuspendedFilter() } },
     { $unwind: "$services" },
     {
       $group: {
@@ -310,7 +342,7 @@ async function findByService(query, { category = "", serviceType = "", lat = nul
     })
     .map((s) => s.name);
 
-  const baseFilter = { userType: "freelancer", suspended: { $ne: true } };
+  const baseFilter = { userType: "freelancer", ...notSuspendedFilter() };
   // $or — match ANY of these conditions, the Mongo equivalent of SQL's OR.
   const orClauses = [
     { name: new RegExp(escapeRegex(queryLower), "i") },           // "i" = case-insensitive
@@ -428,7 +460,7 @@ async function getFavorites(userTelegramId) {
   const docs = await Entrepreneur.find({
     _id: { $in: favs.map((f) => f.entrepreneurId) },
     userType: "freelancer",
-    suspended: { $ne: true },
+    ...notSuspendedFilter(),
   });
   const byId = new Map(docs.map((d) => [d._id.toString(), d]));
   return favs.map((f) => byId.get(f.entrepreneurId.toString())).filter(Boolean).map((d) => toListItem(d));
@@ -492,13 +524,25 @@ async function getReviewById(reviewId) {
   return { id: r._id.toString(), score: r.score, comment: r.comment, rater_name: r.raterName, hidden: r.hidden, created_at: r.createdAt };
 }
 
-async function suspendListing(entrepreneurId) {
-  const res = await Entrepreneur.updateOne({ _id: entrepreneurId }, { $set: { suspended: true } });
+// durationHours: null/omitted means an indefinite suspension (no
+// auto-expiry, must be manually unsuspended). A number sets
+// suspendedUntil to that many hours from now — isCurrentlySuspended()
+// and notSuspendedFilter() both automatically stop treating this
+// listing as suspended once that time passes, no cron job or cleanup
+// step needed.
+async function suspendListing(entrepreneurId, durationHours = null) {
+  const suspendedUntil = durationHours != null && durationHours > 0
+    ? new Date(Date.now() + durationHours * 60 * 60 * 1000)
+    : null;
+  const res = await Entrepreneur.updateOne(
+    { _id: entrepreneurId },
+    { $set: { suspended: true, suspendedUntil } }
+  );
   return res.modifiedCount > 0;
 }
 
 async function unsuspendListing(entrepreneurId) {
-  const res = await Entrepreneur.updateOne({ _id: entrepreneurId }, { $set: { suspended: false } });
+  const res = await Entrepreneur.updateOne({ _id: entrepreneurId }, { $set: { suspended: false, suspendedUntil: null } });
   return res.modifiedCount > 0;
 }
 
@@ -541,7 +585,8 @@ async function adminSearchListings(query, limit = 20, offset = 0) {
     const stats = computeRatingStats(d.ratings);
     return {
       id: d._id.toString(), name: d.name, email: d.email, user_type: d.userType,
-      suspended: d.suspended, identity_verified: d.identityVerified, phone_verified: d.phoneVerified,
+      suspended: isCurrentlySuspended(d), suspended_until: d.suspendedUntil || null,
+      identity_verified: d.identityVerified, phone_verified: d.phoneVerified,
       created_at: d.createdAt, services: (d.services || []).map((s) => s.name), ...stats,
     };
   });
@@ -702,7 +747,7 @@ async function upgradeToFreelancer(telegramId) {
 // ---------- Profile management ----------
 
 async function getPublicProfile(entrepreneurId, viewerTelegramId = null) {
-  const doc = await Entrepreneur.findOne({ _id: entrepreneurId, userType: "freelancer", suspended: { $ne: true } });
+  const doc = await Entrepreneur.findOne({ _id: entrepreneurId, userType: "freelancer", ...notSuspendedFilter() });
   if (!doc) return null;
   const out = toFullProfile(doc); // includePrivate defaults to false — strangers don't get telegram_id
   // is_owner is derived here (before telegram_id gets stripped by
@@ -744,6 +789,39 @@ async function deleteEntrepreneur(telegramId) {
   await Favorite.deleteMany({ userTelegramId: telegramId });
   await PhoneVerification.deleteOne({ telegramId });
   return res.deletedCount > 0;
+}
+
+async function isBanned(telegramId) {
+  const doc = await BannedUser.findOne({ telegramId });
+  return !!doc;
+}
+
+async function banIdentity(telegramId, reason, bannedByTelegramId) {
+  // Upsert, not create: if this identity is somehow already on the
+  // blocklist (shouldn't normally happen, but a retried request or an
+  // old ban re-applied shouldn't throw a duplicate-key error), just
+  // refresh the reason/bannedBy/bannedAt rather than failing.
+  await BannedUser.updateOne(
+    { telegramId },
+    { $set: { reason: reason || "", bannedBy: bannedByTelegramId, bannedAt: new Date() } },
+    { upsert: true }
+  );
+}
+
+// Deliberately two separate steps, not one combined query — per the
+// spec this implements: recording the block and wiping the account are
+// distinct operations so they can be reasoned about (and, if ever
+// needed, retried or audited) independently. banIdentity() runs first
+// so that even if the delete step fails partway through for some
+// reason, the identity is already blocked from creating a new account —
+// the safer failure direction, versus a half-deleted-but-still-bannable
+// account.
+async function banAndDeleteEntrepreneur(entrepreneurId, reason, bannedByTelegramId) {
+  const doc = await Entrepreneur.findById(entrepreneurId, "telegramId");
+  if (!doc) return { success: false, reason: "not_found" };
+  await banIdentity(doc.telegramId, reason, bannedByTelegramId);
+  await deleteEntrepreneur(doc.telegramId);
+  return { success: true, telegramId: doc.telegramId };
 }
 
 async function addServices(telegramId, serviceNames) {
@@ -857,6 +935,7 @@ module.exports = {
   getEntrepreneurAnalytics, setListingPlan, upgradeToFreelancer,
   getPublicProfile, getPhotoFields, getEntrepreneurProfile,
   forceDeleteByName, deleteEntrepreneur, addServices, removeServices,
+  isBanned, banIdentity, banAndDeleteEntrepreneur,
   getAdminIdsFromDb, addAdmin, removeAdmin, getAdminDetails, getEntrepreneurNames,
   setVerifiedPhone, getPhoneVerification,
   getStats, getAllTelegramIds,

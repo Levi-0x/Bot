@@ -113,6 +113,15 @@ const EntrepreneurSchema = new Schema({
   },
 
   suspended: { type: Boolean, default: false },     // moderation: hide without deleting
+  // Time-based suspension: when set and in the future, the listing is
+  // treated as suspended even if `suspended` above is false — this lets
+  // an admin set a suspension that lifts itself instead of requiring a
+  // manual unsuspend later. `suspended` (the plain boolean) still exists
+  // for an indefinite/manual suspension with no set end time; the two
+  // are combined in isCurrentlySuspended() in repository.js, which is
+  // the one place that should ever be used to check "is this actually
+  // suspended right now" — don't read either field alone elsewhere.
+  suspendedUntil: { type: Date, default: null },
   forceFeatured: { type: Boolean, default: false }, // admin override for the Home "Featured" section
   plan: { type: String, default: "free" },
   planExpiresAt: Date,

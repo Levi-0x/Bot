@@ -1396,9 +1396,17 @@ async function refreshAdminList() {
   
   const renderAdmin = (admin, isRoot = false) => {
     const displayName = admin.name ? escapeHtml(admin.name) : `#${admin.telegramId}`;
-    const badge = isRoot ? '<span class="admin-badge owner">Owner</span>' : "";
+    const badge = isRoot
+      ? '<span class="admin-badge tier1">Tier 1</span>'
+      : '<span class="admin-badge tier2">Tier 2</span>';
+    // Tier 1 (root) admins can't be removed here at all — not by
+    // another Tier 1 admin, not by anyone — because they're not a
+    // database row to delete in the first place; they come straight
+    // from ADMIN_IDS in the deploy config. Changing that means editing
+    // the env var and redeploying, not an app action, so there's
+    // nothing for a Remove button here to even do.
     const removeBtn = isRoot ? "" : `<button class="btn-remove-admin" data-id="${admin.telegramId}">Remove</button>`;
-    return `<div class="admin-row"><span class="admin-name">${escapeHtml(displayName)}${badge}</span>${removeBtn}</div>`;
+    return `<div class="admin-row"><span class="admin-name">${displayName}${badge}</span>${removeBtn}</div>`;
   };
   
   let html = "";
@@ -1453,13 +1461,14 @@ document.getElementById("adminSearchBtn").addEventListener("click", async () => 
   container.innerHTML = results.map(r => `
     <div class="admin-listing-row" data-id="${r.id}">
       <div><b>#${r.id}</b> ${escapeHtml(r.name)} <span class="field-hint">(${r.user_type})</span></div>
-      <div class="field-hint">${r.suspended ? "SUSPENDED" : "Active"} | ${r.identity_verified ? "Verified" : ""} | ${r.avg_rating ? "\u2b50 " + r.avg_rating : ""}</div>
+      <div class="field-hint">${r.suspended ? (r.suspended_until ? `SUSPENDED until ${new Date(r.suspended_until).toLocaleString()}` : "SUSPENDED (indefinite)") : "Active"} | ${r.identity_verified ? "Verified" : ""} | ${r.avg_rating ? "\u2b50 " + r.avg_rating : ""}</div>
       <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
         ${r.suspended
           ? `<button class="btn-small btn-green" data-admin-action="unsuspend" data-listing-id="${r.id}">Unsuspend</button>`
           : `<button class="btn-small btn-orange" data-admin-action="suspend" data-listing-id="${r.id}">Suspend</button>`}
         <button class="btn-small" data-admin-action="toggle-feature" data-listing-id="${r.id}" data-feature-value="${!r.force_featured}">${r.force_featured ? "Unfeature" : "Feature"}</button>
         <button class="btn-small danger-text" data-admin-action="remove" data-listing-name="${escapeHtml(r.name)}">Remove</button>
+        <button class="btn-small danger-text" data-admin-action="ban" data-listing-id="${r.id}" data-listing-name="${escapeHtml(r.name)}">Ban</button>
       </div>
     </div>`).join("");
   // Wired via addEventListener + data attributes rather than inline
@@ -1473,20 +1482,85 @@ document.getElementById("adminSearchBtn").addEventListener("click", async () => 
   container.querySelectorAll("[data-admin-action]").forEach(btn => {
     btn.addEventListener("click", () => {
       const action = btn.dataset.adminAction;
-      if (action === "suspend") adminSuspend(btn.dataset.listingId);
+      if (action === "suspend") openSuspendDurationModal(btn.dataset.listingId);
       else if (action === "unsuspend") adminUnsuspend(btn.dataset.listingId);
       else if (action === "toggle-feature") adminToggleFeature(btn.dataset.listingId, btn.dataset.featureValue === "true");
       else if (action === "remove") adminForceRemove(btn.dataset.listingName);
+      else if (action === "ban") adminBan(btn.dataset.listingId, btn.dataset.listingName);
     });
   });
 });
 
-async function adminSuspend(id) {
-  const { ok, status, data } = await apiPost(`/api/admin/listings/${id}/suspend`, { initData: tg.initData });
-  if (!ok) console.error("adminSuspend failed:", status, data);
-  safeAlert(ok ? "Suspended." : "Error.");
-  if (ok) document.getElementById("adminSearchBtn").click();
+// Suspend now supports a time-based duration instead of only an
+// indefinite toggle — a small modal (same pattern as Post Job / Respond
+// elsewhere in this app) rather than cluttering every single search
+// result row with a permanently-visible duration picker.
+function openSuspendDurationModal(id) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>Suspend Listing</h3>
+      <p class="field-hint">Choose how long this suspension should last.</p>
+      <label class="field">Duration
+        <select id="suspendDurationSelect">
+          <option value="24">24 hours</option>
+          <option value="72">3 days</option>
+          <option value="168">7 days</option>
+          <option value="">Indefinite (manual unsuspend)</option>
+        </select>
+      </label>
+      <button class="btn-primary" id="suspendConfirmBtn">Suspend</button>
+      <button class="btn-secondary btn-modal-cancel" id="suspendCancelBtn">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById("suspendConfirmBtn").addEventListener("click", async () => {
+    const val = document.getElementById("suspendDurationSelect").value;
+    overlay.remove();
+    const { ok, status, data } = await apiPost(`/api/admin/listings/${id}/suspend`, {
+      initData: tg.initData,
+      duration_hours: val ? Number(val) : null,
+    });
+    if (!ok) console.error("adminSuspend failed:", status, data);
+    safeAlert(ok ? "Suspended." : "Error.");
+    if (ok) document.getElementById("adminSearchBtn").click();
+  });
+  document.getElementById("suspendCancelBtn").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
 }
+
+// Ban is deliberately more final than Remove — it both wipes the
+// listing (same underlying cleanup as Remove) AND records the
+// identity so they can't just re-register. Confirmed with an explicit
+// warning since, unlike suspend, there's no undo button for this one.
+function adminBan(id, name) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3>Ban "${escapeHtml(name)}"</h3>
+      <p class="field-hint">This deletes their listing AND blocks their Telegram account from ever registering again. This can't be undone from the app.</p>
+      <label class="field">Reason <span class="opt">optional, kept in the audit log</span>
+        <input type="text" id="banReasonInput" placeholder="e.g. repeated fake listings" />
+      </label>
+      <button class="btn-primary" style="background:var(--danger);" id="banConfirmBtn">Ban &amp; Delete</button>
+      <button class="btn-secondary btn-modal-cancel" id="banCancelBtn">Cancel</button>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById("banConfirmBtn").addEventListener("click", async () => {
+    const reason = document.getElementById("banReasonInput").value.trim();
+    overlay.remove();
+    const { ok, status, data } = await apiPost(`/api/admin/listings/${id}/ban`, { initData: tg.initData, reason });
+    if (!ok) console.error("adminBan failed:", status, data);
+    safeAlert(ok ? "Banned and deleted." : "Error.");
+    if (ok) document.getElementById("adminSearchBtn").click();
+  });
+  document.getElementById("banCancelBtn").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
 async function adminUnsuspend(id) {
   const { ok, status, data } = await apiPost(`/api/admin/listings/${id}/unsuspend`, { initData: tg.initData });
   if (!ok) console.error("adminUnsuspend failed:", status, data);

@@ -83,6 +83,11 @@ async function upgradeToFreelancer(req, res) {
 
 async function register(req, res) {
   const body = req.body || {};
+  // No ban check here — authUser (which every route including this one
+  // runs behind) already rejects a banned identity with 403 before this
+  // function is ever reached. Checking again here would be dead code,
+  // not defense in depth, since there's no path to this function that
+  // skips authUser.
   const name = (body.name || "").trim();
   const services = body.services || [];
   const email = (body.email || "").trim();

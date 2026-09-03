@@ -32,6 +32,7 @@ router.post("/reviews/:id/unhide", authAdmin, ctrl.unhideReview);
 
 router.post("/listings/:id/suspend", authAdmin, ctrl.suspendListing);
 router.post("/listings/:id/unsuspend", authAdmin, ctrl.unsuspendListing);
+router.post("/listings/:id/ban", authAdmin, ctrl.banListing);
 
 router.get("/audit_log", authAdmin, ctrl.getAuditLog);
 router.get("/listing/:id", authAdmin, ctrl.getListing);

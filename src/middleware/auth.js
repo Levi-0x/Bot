@@ -40,6 +40,18 @@ const authUser = wrapAsync(async (req, res, next) => {
   const token = botModule.loadToken();
   const user = validateInitData(getInitData(req), token);
   if (!user) return res.status(401).json({ error: "invalid_init_data" });
+  // "Ban" blocks both future account creation (checked again, more
+  // specifically, in entrepreneurController.register()) and general
+  // access — checking it here in the shared auth middleware means every
+  // authenticated route is covered, not just registration. A banned
+  // identity gets 403'd before req.user is even trusted by anything
+  // downstream. require()'d lazily inside the function body, not at
+  // module load time, to sidestep any require-order sensitivity between
+  // this file and repository.js — there's no actual circular require
+  // today, but this keeps it that way even if repository.js ever grows
+  // a dependency back toward middleware/ in the future.
+  const repo = require("../repository");
+  if (await repo.isBanned(user.id)) return res.status(403).json({ error: "banned" });
   req.user = user;
   next();
 });
@@ -51,6 +63,8 @@ const authAdmin = wrapAsync(async (req, res, next) => {
   const token = botModule.loadToken();
   const user = validateInitData(getInitData(req), token);
   if (!user) return res.status(401).json({ error: "invalid_init_data" });
+  const repo = require("../repository");
+  if (await repo.isBanned(user.id)) return res.status(403).json({ error: "banned" });
   const admins = await botModule.loadAdminIds();
   if (!admins.has(user.id)) return res.status(403).json({ error: "forbidden" });
   req.user = user;

@@ -728,14 +728,25 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
   padding: 12px 0; border-bottom: 1px solid var(--border);
 }
 .admin-row:last-child { border-bottom: none; }
+/* Keeps a long admin list from turning the whole admin panel into one
+   giant scroll — the list scrolls internally within a fixed height
+   instead. Row dividers (.admin-row's border-bottom) still show inside
+   it, so it doesn't look visually cut off mid-list. */
+.scrollable-list { max-height: 320px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .admin-name { display: flex; align-items: center; gap: 8px; font-weight: 500; }
 .admin-badge {
   font-size: 10px; font-weight: 700; padding: 2px 8px;
   border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px;
 }
-.admin-badge.owner {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+.admin-badge.tier1 {
+  background: transparent;
+  border: 1.5px solid var(--danger);
+  color: var(--danger);
+}
+.admin-badge.tier2 {
+  background: transparent;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
 }
 .btn-remove-admin {
   background: none; border: 1px solid var(--danger); color: var(--danger);

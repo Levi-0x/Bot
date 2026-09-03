@@ -123,8 +123,15 @@ async function unhideReview(req, res) {
 }
 
 async function suspendListing(req, res) {
-  const suspended = await repo.suspendListing(req.params.id);
-  await repo.logAdminAction(req.user.id, "suspend_listing", { targetType: "listing", targetId: req.params.id });
+  // duration_hours: omit or send null for an indefinite suspension.
+  // A number sets an auto-expiring one — see suspendListing() in
+  // repository.js for exactly how that's tracked.
+  const durationHours = (req.body || {}).duration_hours;
+  const suspended = await repo.suspendListing(req.params.id, durationHours != null ? Number(durationHours) : null);
+  await repo.logAdminAction(req.user.id, "suspend_listing", {
+    targetType: "listing", targetId: req.params.id,
+    details: durationHours ? `duration_hours=${durationHours}` : "indefinite",
+  });
   res.json({ status: "ok", suspended });
 }
 
@@ -132,6 +139,22 @@ async function unsuspendListing(req, res) {
   const unsuspended = await repo.unsuspendListing(req.params.id);
   await repo.logAdminAction(req.user.id, "unsuspend_listing", { targetType: "listing", targetId: req.params.id });
   res.json({ status: "ok", unsuspended });
+}
+
+// Two distinct steps under the hood (see banAndDeleteEntrepreneur() in
+// repository.js) surfaced here as one admin action: block the identity
+// from ever registering again, then wipe their current listing and
+// related data. This is separate from forceRemove — forceRemove is a
+// plain deletion with no lasting block, this is permanent.
+async function banListing(req, res) {
+  const reason = ((req.body || {}).reason || "").trim();
+  const result = await repo.banAndDeleteEntrepreneur(req.params.id, reason, req.user.id);
+  if (!result.success) return res.status(404).json({ error: result.reason });
+  await repo.logAdminAction(req.user.id, "ban_and_delete", {
+    targetType: "listing", targetId: req.params.id,
+    details: `telegram_id=${result.telegramId}${reason ? `; reason=${reason}` : ""}`,
+  });
+  res.json({ status: "ok", banned: true });
 }
 
 async function getAuditLog(req, res) {
@@ -200,7 +223,7 @@ async function growthAnalytics(req, res) {
 
 module.exports = require("../middleware/asyncHandler").wrapAllAsync({
   checkAdmin, getStats, broadcast, listAdmins, addAdmin, removeAdmin, forceRemove,
-  deleteReview, hideReview, unhideReview, suspendListing, unsuspendListing,
+  deleteReview, hideReview, unhideReview, suspendListing, unsuspendListing, banListing,
   getAuditLog, getListing, searchListings, mergeServices,
   getAllCategories, addCategory, deleteCategory, feature,
   searchAnalytics, growthAnalytics,
