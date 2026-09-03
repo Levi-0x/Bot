@@ -197,7 +197,7 @@ function avatarHtml(entrepreneur, size) {
 async function apiGet(path) {
   const separator = path.includes("?") ? "&" : "?";
   const res = await fetch(`${path}${separator}initData=${encodeURIComponent(tg.initData)}`);
-  return res.json();
+  return res.json().catch(() => ({}));
 }
 
 function asArray(data) {
@@ -642,12 +642,12 @@ async function loadProfile() {
 
     document.getElementById("editListingBtn").addEventListener("click", () => openStepper(profile));
     document.getElementById("removeListingBtn").addEventListener("click", () => {
-      tg.showConfirm("Remove your listing? This can't be undone.", async (confirmed) => {
+      safeConfirm("Remove your listing? This can't be undone.", async (confirmed) => {
         if (!confirmed) return;
         await apiPost("/api/unregister", { initData: tg.initData });
         verifiedPhoneNumber = null;
         currentUserType = null;
-        tg.showAlert("You've been removed from the list.");
+        safeAlert("You've been removed from the list.");
         loadProfile();
       });
     });
@@ -676,23 +676,23 @@ async function loadProfile() {
       </div>`;
 
     document.getElementById("upgradeToFreelancerBtn").addEventListener("click", async () => {
-      tg.showConfirm("Upgrade to a freelancer? You'll be able to list services and get discovered.", async (confirmed) => {
+      safeConfirm("Upgrade to a freelancer? You'll be able to list services and get discovered.", async (confirmed) => {
         if (!confirmed) return;
         const { ok } = await apiPost("/api/upgrade_to_freelancer", { initData: tg.initData });
         if (ok) {
           currentUserType = "freelancer";
-          tg.showAlert("Upgraded! Now set up your services.");
+          safeAlert("Upgraded! Now set up your services.");
           loadProfile();
         }
       });
     });
     document.getElementById("removeListingBtn").addEventListener("click", () => {
-      tg.showConfirm("Remove your account? This can't be undone.", async (confirmed) => {
+      safeConfirm("Remove your account? This can't be undone.", async (confirmed) => {
         if (!confirmed) return;
         await apiPost("/api/unregister", { initData: tg.initData });
         verifiedPhoneNumber = null;
         currentUserType = null;
-        tg.showAlert("You've been removed.");
+        safeAlert("You've been removed.");
         openStepper(null);
       });
     });
@@ -1239,25 +1239,25 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
   const panelId = mapping.panels[currentStep - 1];
 
   if (panelId === 1) {
-    if (!selectedUserRole) return tg.showAlert("Please select how you'd like to use GrowthHub.");
+    if (!selectedUserRole) return safeAlert("Please select how you'd like to use GrowthHub.");
     isFreelancer = selectedUserRole === "freelancer";
     goToStep(currentStep + 1);
     return;
   }
   if (panelId === 2) {
-    if (!selectedOfferType) return tg.showAlert("Please select what you offer.");
+    if (!selectedOfferType) return safeAlert("Please select what you offer.");
     goToStep(currentStep + 1);
     return;
   }
   if (panelId === 3) {
     const name = document.getElementById("stepName").value.trim();
     const email = document.getElementById("stepEmail").value.trim();
-    if (!name) return tg.showAlert("Please enter your name.");
+    if (!name) return safeAlert("Please enter your name.");
     if (!verifiedPhoneNumber) {
       const justVerified = await checkPhoneVerification();
-      if (!justVerified) return tg.showAlert("Please verify your phone first.");
+      if (!justVerified) return safeAlert("Please verify your phone first.");
     }
-    if (!email.includes("@") || !email.split("@").pop().includes(".")) return tg.showAlert("Please enter a valid email.");
+    if (!email.includes("@") || !email.split("@").pop().includes(".")) return safeAlert("Please enter a valid email.");
     if (isFreelancer) {
       goToStep(currentStep + 1);
     } else {
@@ -1266,7 +1266,7 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
     return;
   }
   if (panelId === 4) {
-    if (!stepperTags.length) return tg.showAlert("Add at least one service or product.");
+    if (!stepperTags.length) return safeAlert("Add at least one service or product.");
     goToStep(currentStep + 1);
     return;
   }
@@ -1275,7 +1275,7 @@ document.getElementById("stepNextBtn").addEventListener("click", async () => {
     return;
   }
   if (panelId === 6) {
-    if (!uploadedPhotoBase64 && !currentProfile?.id) return tg.showAlert("Please upload a photo.");
+    if (!uploadedPhotoBase64 && !currentProfile?.id) return safeAlert("Please upload a photo.");
     if (isFreelancer) {
       goToStep(currentStep + 1);
     } else {
@@ -1295,7 +1295,7 @@ async function submitRegistration() {
     const homeAddress = document.getElementById("stepHomeAddress").value.trim();
     const businessAddress = document.getElementById("stepBusinessAddress").value.trim();
     if (!homeAddress && !businessAddress) {
-      return tg.showAlert("Add a business address, or a home address if you work from home.");
+      return safeAlert("Add a business address, or a home address if you work from home.");
     }
   }
 
@@ -1342,10 +1342,10 @@ async function submitRegistration() {
     }
     showView("success");
   } else if (data?.error === "phone_not_verified") {
-    tg.showAlert("Phone verification expired \u2014 please verify again.");
+    safeAlert("Phone verification expired — please verify again.");
     goToStep(2);
   } else {
-    tg.showAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong.");
+    safeAlert(data?.error === "missing_fields" ? `Missing: ${data.fields.join(", ")}` : "Something went wrong.");
   }
 }
 
@@ -1425,8 +1425,8 @@ async function refreshAdminList() {
       const id = Number(btn.dataset.id);
       if (!id) return;
       const { ok, data } = await apiPost("/api/admin/remove_admin", { initData: tg.initData, telegram_id: id });
-      if (data?.error === "is_root_admin") tg.showAlert("Root admin — remove via Render.");
-      else { tg.showAlert(ok && data.removed ? "Removed." : "Not found."); if (ok && data.removed) refreshAdminList(); }
+      if (data?.error === "is_root_admin") safeAlert("Root admin — remove via Render.");
+      else { safeAlert(ok && data.removed ? "Removed." : "Not found."); if (ok && data.removed) refreshAdminList(); }
     });
   });
 }
@@ -1434,11 +1434,11 @@ async function refreshAdminList() {
 document.getElementById("adminBack").addEventListener("click", () => showView("profile"));
 document.getElementById("adminBroadcastBtn").addEventListener("click", () => {
   const message = document.getElementById("adminBroadcastText").value.trim();
-  if (!message) return tg.showAlert("Write a message first.");
-  tg.showConfirm(`Send to all?\n\n"${message}"`, async (confirmed) => {
+  if (!message) return safeAlert("Write a message first.");
+  safeConfirm(`Send to all?\n\n"${message}"`, async (confirmed) => {
     if (!confirmed) return;
     const { ok, data } = await apiPost("/api/admin/broadcast", { initData: tg.initData, message });
-    tg.showAlert(ok ? `Sent to ${data.sent} (${data.failed} failed).` : "Failed.");
+    safeAlert(ok ? `Sent to ${data.sent} (${data.failed} failed).` : "Failed.");
     if (ok) document.getElementById("adminBroadcastText").value = "";
   });
 });
@@ -1453,9 +1453,9 @@ function addAdminErrorMessage(errorCode) {
 
 document.getElementById("addAdminBtn").addEventListener("click", async () => {
   const id = Number(document.getElementById("adminIdInput").value.trim());
-  if (!id) return tg.showAlert("Enter a valid ID.");
+  if (!id) return safeAlert("Enter a valid ID.");
   const { ok, data } = await apiPost("/api/admin/add_admin", { initData: tg.initData, telegram_id: id });
-  tg.showAlert(ok ? "Admin added." : addAdminErrorMessage(data?.error));
+  safeAlert(ok ? "Admin added." : addAdminErrorMessage(data?.error));
   if (ok) { document.getElementById("adminIdInput").value = ""; refreshAdminList(); }
 });
 

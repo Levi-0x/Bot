@@ -57,9 +57,11 @@ app.use((err, req, res, next) => {
 // process down.
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection:", reason);
+  process.exit(1);
 });
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err);
+  process.exit(1);
 });
 
 async function main() {
