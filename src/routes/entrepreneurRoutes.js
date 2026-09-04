@@ -24,7 +24,7 @@ router.post("/register", authUser, ctrl.register);
 // broken <img> tag has no use for JSON — the browser just wants either
 // image bytes or a plain empty response. getPhoto() verifies auth itself
 // so it can fail with res.status(401).end() instead.
-router.get("/photo/:id", ctrl.getPhoto);
+router.get("/photo/:id", authUser, ctrl.getPhoto);
 
 router.post("/rate", authUser, ctrl.rate);
 router.get("/reviews/:id", authUser, ctrl.getReviews);

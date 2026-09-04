@@ -205,10 +205,23 @@ function notSuspendedFilter() {
 // written — the same defensive move server.py's register_entrepreneur
 // makes. Without it, a client could send arbitrary extra JSON keys and
 // have them land straight on the document.
+// photoFileId and phoneVerified are deliberately NOT in this list, even
+// though both exist as real schema fields. Neither should ever be
+// settable through this generic whitelist mechanism: phoneVerified is
+// only ever set via the explicit, server-verified check a few lines
+// below (against the PhoneVerification collection, never trusting
+// whatever a client claims), and photoFileId isn't set anywhere in the
+// current app at all (the upload flow only ever uses photoBase64) — it
+// also feeds a server-side outbound request to Telegram's getFile API
+// in getPhoto(), so accepting an arbitrary client-supplied value there
+// would be a bad idea even if something did legitimately need to set it
+// later. If either genuinely needs to become client-settable in the
+// future, don't just add it back here — build a specific, validated
+// path for it instead of the generic whitelist.
 const ALLOWED_FIELDS = new Set([
-  "name", "socials", "phone", "email", "photoFileId", "photoBase64",
+  "name", "socials", "phone", "email", "photoBase64",
   "gallery", "businessAddress", "website", "homeAddress",
-  "phoneVerified", "socialPlatforms", "description", "businessType",
+  "socialPlatforms", "description", "businessType",
   "userType", "location", "telegramUsername",
 ]);
 

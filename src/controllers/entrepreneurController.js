@@ -11,8 +11,6 @@
 
 const repo = require("../repository");
 const botModule = require("../bot");
-const { validateInitData } = require("../lib/telegramAuth");
-const { getInitData } = require("../middleware/auth");
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -150,13 +148,16 @@ async function register(req, res) {
   res.json({ status: "ok" });
 }
 
-// This one is unusual: it needs to work even though authUser wasn't run
-// as middleware here (the route is intentionally left ungated in
-// routes/entrepreneurRoutes.js — see the comment there), so it verifies
-// initData itself instead of trusting req.user.
+// Used to run without authUser as middleware (manually re-implementing
+// the same initData check inline instead) — that meant it was still
+// authenticated, but skipped the ban check specifically, since that
+// lives in authUser. Fixed by routing it through authUser like every
+// other route; nothing in this function actually needs req.user for
+// anything beyond the auth check itself (getPhotoFields() below takes
+// the photo's own :id from the URL, not the caller's identity), so the
+// only change needed here was removing the now-redundant manual check.
 async function getPhoto(req, res) {
   const token = botModule.loadToken();
-  if (!validateInitData(getInitData(req), token)) return res.status(401).end();
   const photo = await repo.getPhotoFields(req.params.id);
   if (!photo) return res.status(404).end();
 
