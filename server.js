@@ -57,16 +57,14 @@ app.use((err, req, res, next) => {
 // process down.
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection:", reason);
-  process.exit(1);
 });
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err);
-  process.exit(1);
 });
 
 async function main() {
   await connect();          // opens the Mongo connection pool + seeds categories
-  botModule.buildBot();     // starts the bot polling in the background
+  botModule.buildBot(app);  // registers the webhook route on this app and tells Telegram about it
   const port = process.env.PORT || 5000;
   app.listen(port, () => console.log(`GrowthHub (Node) listening on port ${port}`));
 }

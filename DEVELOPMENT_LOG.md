@@ -369,3 +369,46 @@ session doesn't have to redo this whole pass from scratch.
   generic 500 (global error handler catches it, no crash, no leak),
   not a clean 400. Cosmetic robustness gap, admin-only, low priority.
 
+## Two real bugs, found together, worth understanding as a pair
+
+- **The Mongo connection env var got silently renamed from
+  `MONGODB_URI` to `MONGODB_URL`** at some point in `src/config/db.js`,
+  by an upload from a different model session — not something built
+  here. Since Render's actual env var is `MONGODB_URI` (established
+  from this project's very first fix, still what `.env.example`
+  documents), that made `process.env.MONGODB_URI` always undefined on
+  the deployed server. Because `connect()` falls back to
+  `mongodb://localhost:27017/growthhub` when the env var is missing,
+  and because *something* apparently answered at whatever
+  `MONGODB_URL` resolved to (the server started up cleanly, no crash,
+  no connection-error loop in Render's logs), the app was quietly
+  connected to the wrong — likely empty — database the whole time.
+  That's what "opens fine but acts like I've never registered, even
+  though my data's still in MongoDB" looks like: not a broken
+  registration flow, a clean connection to the wrong place. Fixed back
+  to `MONGODB_URI`, plus added a startup warning if that var is ever
+  missing again, so this fails loudly next time instead of silently.
+  **Never rename this env var in code without renaming it on Render
+  too** (or vice versa) — they have to match exactly.
+- **Bot now runs on a webhook, not polling.** `{ polling: true }` means
+  this process itself repeatedly asks Telegram "any updates for me?" —
+  and Telegram only allows one active poller per bot token at a time.
+  Render's zero-downtime deploys briefly run the old and new instance
+  side by side, so for a few seconds both were polling simultaneously
+  — exactly what produces `409 Conflict: terminated by other getUpdates
+  request`. A webhook has no such constraint: Telegram pushes updates
+  to a URL instead of two processes racing to ask. `buildBot()` now
+  takes the Express `app` as a parameter (called as
+  `botModule.buildBot(app)` from `server.js`), registers
+  `POST /telegram-webhook/:token` on it, and calls `bot.setWebHook()`
+  once at startup pointed at `${WEBAPP_URL}/telegram-webhook/${token}`.
+  The token in the URL path isn't a real auth mechanism — Telegram
+  doesn't send any secret back — it's just enough that the endpoint
+  can't be trivially guessed by someone who doesn't already have the
+  bot token, which they'd need for anything meaningful anyway. **This
+  requires `WEBAPP_URL` to be set to the real public HTTPS URL** — if
+  it's missing, the bot has no webhook registered and won't receive
+  any messages at all (a startup warning now says so explicitly rather
+  than failing silently). Don't switch this back to `{ polling: true }`
+  without a real reason — that's what caused the 409 in the first place.
+

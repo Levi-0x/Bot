@@ -82,13 +82,54 @@ function adminOnly(bot, handler) {
   };
 }
 
-function buildBot() {
+function buildBot(app) {
   const token = loadToken();
-  // { polling: true } — this bot checks in with Telegram's servers
-  // itself asking "any new messages for me?" on a loop, rather than
-  // Telegram pushing to a webhook URL. Simpler to run locally (no public
-  // URL needed), which is why it's the same choice the Python version made.
-  const bot = new TelegramBot(token, { polling: true });
+  // Switched from { polling: true } to a webhook. Polling means this
+  // process itself calls Telegram's getUpdates in a loop — and Telegram
+  // only allows ONE active poller per bot token at a time. Render's
+  // zero-downtime deploys start the new instance before fully stopping
+  // the old one, so for a few seconds both are polling simultaneously
+  // — Telegram's own answer to that is exactly the 409 "terminated by
+  // other getUpdates request" error. A webhook doesn't have this
+  // problem at all: Telegram pushes updates to a URL instead of two
+  // processes racing to ask "any updates?" — there's no "only one
+  // poller" constraint to violate in the first place.
+  const bot = new TelegramBot(token);
+
+  if (WEBAPP_URL) {
+    const webhookPath = `/telegram-webhook/${token}`;
+    // The token in the URL path isn't for auth (Telegram doesn't send
+    // any secret back) — it's so the endpoint can't be trivially
+    // guessed and spammed with fake updates by someone who doesn't
+    // already know your bot token, which they'd need for anything
+    // meaningful anyway. Registered on `app` directly (passed in from
+    // server.js) rather than through the normal routes/ layer, since
+    // this isn't a /api/* route and doesn't go through authUser.
+    // No explicit express.json() here — server.js already applies it
+    // globally, before buildBot() ever runs, so req.body is already
+    // parsed by the time a request reaches this handler. Adding it again
+    // here would try to re-read an already-consumed request stream.
+    app.post(webhookPath, (req, res) => {
+      // Caught locally rather than relying on server.js's global error
+      // handler — this route gets registered later than that handler
+      // (buildBot() runs inside main(), after the error handler was
+      // already set up at module-load time), so an error here wouldn't
+      // actually reach it. Simpler to just not depend on registration
+      // order at all than to restructure server.js's startup sequence
+      // for one route.
+      try {
+        bot.processUpdate(req.body);
+      } catch (err) {
+        console.error("Error processing Telegram webhook update:", err);
+      }
+      res.sendStatus(200);
+    });
+    bot.setWebHook(`${WEBAPP_URL}${webhookPath}`).catch((err) => {
+      console.error("Failed to set Telegram webhook:", err.message);
+    });
+  } else {
+    console.warn("WEBAPP_URL is not set — the bot has no public HTTPS URL to register a webhook against, so it won't receive any messages. Set WEBAPP_URL to fix this.");
+  }
 
   // ---------- Basic commands ----------
 
